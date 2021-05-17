@@ -6,5 +6,6 @@
   :license  "Specify license here"
   :version "0.0.1"
   :serial t
+  :depends-on (#:polymorph.maths #:polymorph.access)
   :components ((:file "package")
                (:file "polymorph.traversable")))
