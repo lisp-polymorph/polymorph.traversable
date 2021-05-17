@@ -2,11 +2,10 @@
 
 (in-package #:polymorph.traversable)
 
-(deftype maybe (typename) `(or null ,typename))
-
-
+;; Find
 (define-polymorphic-function find (item container &key from-end start end
                                     key test) :overwrite t)
+
 
 
 (declaim (inline %inline-finder))
@@ -106,10 +105,51 @@
     `(the (maybe ,elt-type) ,form)))
 
 
-
 (defpolymorph (find :inline t) ((item t) (container list) &key ((from-end boolean) nil)
                                 ((start ind) 0) ((end (maybe ind)) nil)
                                 ((key (maybe function)) nil) ((test (maybe function)) nil))
     t
   (%inline-finder item container :from-end from-end :start start :end end
                                  :key key :test test))
+
+
+(defpolymorph (find :inline t) ((item t) (container hash-table) &key ((from-end boolean) nil)
+                                ((start ind) 0) ((end (maybe ind)) nil)
+                                ((key (or null (member :key :value) function)) nil) ((test (maybe function)) nil))
+    t
+  (if (and (= start 0) (not (or end from-end)))
+      (if test
+          (typecase key
+            (null (loop :for k :being :the :hash-keys :in container
+                          :using (hash-value v)
+                        :for pair := (cons k v)
+                        :when (funcall test item pair)
+                          :do (return pair)))
+            ((eql :key) (values (gethash item container))) ;;;TODO test is ignored here
+            ((eql :value) (loop :for v :being :the :hash-value :in container
+                             :when (funcall test item v)
+                               :do (return v)))
+            (otherwise
+             (loop :for k :being :the :hash-keys :in container
+               :using (hash-value v)
+              :for pair := (cons k v)
+              :when (funcall test item (funcall key pair))
+                :do (return pair))))
+          (typecase key
+            (null (loop :for k :being :the :hash-keys :in container
+                          :using (hash-value v)
+                        :for pair := (cons k v)
+                        :when (= item pair)
+                          :do (return pair)))
+            ((eql :key) (values (gethash item container)))
+            ((eql :value) (loop :for v :being :the :hash-value :in container
+                             :when (= item v)
+                               :do (return v)))
+            (otherwise
+             (loop :for k :being :the :hash-keys :in container
+               :using (hash-value v)
+              :for pair := (cons k v)
+              :when (= item (funcall key pair))
+                :do (return pair)))))
+      (error 'simple-error :format-control
+             "Start, end or from-end arguments cannot be provided for hash-tables")))
