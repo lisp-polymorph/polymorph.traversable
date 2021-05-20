@@ -16,3 +16,11 @@
 
 (defun test-polymorph.traversable ()
   (run! 'polymorph.traversable))
+
+
+;;; Find
+
+(test find
+  "Test FIND."
+
+  (is (find 'a '(a b c)) 'a))
