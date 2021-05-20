@@ -1,4 +1,4 @@
-;;; Unit tests for polymorph.maths
+;;; Unit tests for polymorph.traversable
 
 (defpackage #:polymorph.traversable/test
   (:use #:cl #:alexandria #:fiveam)
