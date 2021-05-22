@@ -10,6 +10,9 @@
            #:count #:count-if)
   (:shadowing-import-from #:polymorph.maths #:=)
   (:shadowing-import-from #:polymorph.access #:at #:row-major-at #:size)
-  (:export #:find #:find-if
-         #:position #:position-if
-         #:count #:count-if))
+  (:export
+   #:traverse
+   #:define-traverse-expander
+   #:find #:find-if
+   #:position #:position-if
+   #:count #:count-if))
