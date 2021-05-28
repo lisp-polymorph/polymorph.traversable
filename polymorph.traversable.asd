@@ -13,3 +13,17 @@
                 :components
                 ((:file "package")
                  (:file "polymorph.traversable")))))
+
+(asdf:defsystem #:polymorph.traversable/test
+  :description "Unit tests for polymorph.traversable"
+  :license "MIT"
+  :serial t
+  :depends-on (#:polymorph.traversable #:fiveam)
+  :components ((:module
+                "test"
+                :serial t
+                :components
+                ((:file "test"))))
+
+  :perform (test-op (o s)
+                    (uiop:symbol-call '#:polymorph.traversable/test '#:test-polymorph.traversable)))
