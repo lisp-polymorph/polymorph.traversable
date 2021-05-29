@@ -281,6 +281,121 @@
                  "Start, end or from-end arguments cannot be provided for multidimensional arrays"))))
 
 
+(declaim (inline fcall))
+(defun fcall (f &rest args)
+  (apply f args))
+
+
+(define-compiler-macro fcall (f &rest args)
+  (if (listp f)
+      (cond ((eql (car f) 'function)
+             `(,(cadr f) ,@args))
+            ((eql (car f) 'lambda)
+             `(,f ,@args))
+            (t `(funcall ,f ,@args)))
+      `(funcall ,f ,args)))
+
+
+(defpolymorph-compiler-macro find-if  (function array &key (:from-end boolean)
+                                                (:start ind) (:end ind)
+                                                (:key (maybe function)))
+    (predicate container &key (from-end nil)
+               (start 0) (end `(size ,container))
+               (key nil))
+  (let ((i (gensym "I"))
+        (elt (gensym "ELT")))
+    `(if (= 1 (array-rank ,container))
+         (if ,from-end
+             (if ,key
+                 (loop :for ,i :of-type ind :from (1- ,end) :downto ,start
+                       :for ,elt := ,(if (listp key)
+                                         (cond ((eql (car key) 'function)
+                                                `(,(cadr key) (at ,container ,i)))
+                                               ((eql (car key) 'lambda)
+                                                `(,key (at ,container ,i)))
+                                               (t `(funcall ,key (at ,container ,i))))
+                                         `(funcall ,key (at ,container ,i)))
+                       :when ,(if (listp predicate)
+                                  (cond ((eql (car predicate) 'function)
+                                         `(,(cadr predicate) ,elt))
+                                        ((eql (car predicate) 'lambda)
+                                         `(,predicate ,elt))
+                                        (t `(funcall ,predicate ,elt)))
+                                  `(funcall ,predicate ,elt))
+                         :do (return (values ,elt t))
+                       :finally (return (values nil nil)))
+                 (loop :for ,i :of-type ind :from (1- ,end) :downto ,start
+                       :for ,elt := (at ,container ,i)
+                       :when ,(if (listp predicate)
+                                  (cond ((eql (car predicate) 'function)
+                                         `(,(cadr predicate) ,elt))
+                                        ((eql (car predicate) 'lambda)
+                                         `(,predicate ,elt))
+                                        (t `(funcall ,predicate ,elt)))
+                                  `(funcall ,predicate ,elt))
+                         :do (return (values ,elt t))
+                       :finally (return (values nil nil))))
+             (if ,key
+                 (loop :for ,i :of-type ind :from ,start :below ,end
+                       :for ,elt := ,(if (listp key)
+                                         (cond ((eql (car key) 'function)
+                                                `(,(cadr key) (at ,container ,i)))
+                                               ((eql (car key) 'lambda)
+                                                `(,key (at ,container ,i)))
+                                               (t `(funcall ,key (at ,container ,i))))
+                                         `(funcall ,key (at ,container ,i)))
+                       :when ,(if (listp predicate)
+                                  (cond ((eql (car predicate) 'function)
+                                         `(,(cadr predicate) ,elt))
+                                        ((eql (car predicate) 'lambda)
+                                         `(,predicate ,elt))
+                                        (t `(funcall ,predicate ,elt)))
+                                  `(funcall ,predicate ,elt))
+                         :do (return (values ,elt t))
+                       :finally (return (values nil nil)))
+                 (loop :for ,i :of-type ind :from ,start :below ,end
+                       :for ,elt := (at ,container ,i)
+                       :when (fcall ,predicate ,elt)
+                         :do (return (values ,elt t))
+                       :finally (return (values nil nil)))))
+         (if ,(and (= start 0) (= end `(size ,container)) (not from-end))
+             (if ,key
+                 (loop :for ,i :of-type ind :from 0 :below (array-total-size ,container)
+                       :for ,elt := ,(if (listp key)
+                                         (cond ((eql (car key) 'function)
+                                                `(,(cadr key) (row-major-at ,container ,i)))
+                                               ((eql (car key) 'lambda)
+                                                `(,key (row-major-at ,container ,i)))
+                                               (t `(funcall ,key (row-major-at ,container ,i))))
+                                         `(funcall ,key (row-major-at ,container ,i)))
+                       :when ,(if (listp predicate)
+                                  (cond ((eql (car predicate) 'function)
+                                         `(,(cadr predicate) ,elt))
+                                        ((eql (car predicate) 'lambda)
+                                         `(,predicate ,elt))
+                                        (t `(funcall ,predicate ,elt)))
+                                  `(funcall ,predicate ,elt))
+                         :do (return (values ,elt t))
+                       :finally (return (values nil nil)))
+                 (loop :for ,i :of-type ind :from 0 :below (array-total-size ,container)
+                       :for ,elt := (row-major-at ,container ,i)
+                       :when ,(if (listp predicate)
+                                  (cond ((eql (car predicate) 'function)
+                                         `(,(cadr predicate) ,elt))
+                                        ((eql (car predicate) 'lambda)
+                                         `(,predicate ,elt))
+                                        (t `(funcall ,predicate ,elt)))
+                                  `(funcall ,predicate ,elt))
+                         :do (return (values ,elt t))
+                       :finally (return (values nil nil))))
+             (error 'simple-error :format-control
+                    "Start, end or from-end arguments cannot be provided for multidimensional arrays")))))
+
+
+
+
+
+
 (defpolymorph (find-if :inline t) ((predicate function) (container list) &key ((from-end boolean) nil)
                                    ((start ind) 0) ((end (maybe ind)) nil)
                                    ((key (maybe function)) nil))
@@ -349,3 +464,5 @@
 
       (error 'simple-error :format-control
              "Start, end or from-end arguments cannot be provided for hash-tables")))
+
+
