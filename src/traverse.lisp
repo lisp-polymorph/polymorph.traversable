@@ -125,14 +125,12 @@ Returns a list of CL:LOOP keywords."
      (loop for with in withs
         append
           (destructuring-bind (var form) with
-            (check-type var symbol)
             `(with ,var = ,form)))
 
      (loop for binding in fors
         append
           (destructuring-bind (var init &optional (step nil step-p))
               binding
-            (check-type var symbol)
 
             `(for ,var = ,init
                   ,@(when step-p
