@@ -14,7 +14,8 @@
                 ((:file "package")
                  (:file "polymorph.traversable")
 		 (:file "traverse")
-		 (:file "expanders")))))
+		 (:file "expanders")
+                 (:file "iterators")))))
 
 (asdf:defsystem #:polymorph.traversable/test
   :description "Unit tests for polymorph.traversable"
