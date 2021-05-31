@@ -6,26 +6,36 @@
 
 (define-traverse-expander list (var sequence)
   (values
-   `(for ,var in ,sequence)
-   nil))
+   nil
+   nil
+   nil
+   `(for ,var in ,sequence)))
 
 (define-traverse-expander vector (var sequence)
   (values
-   `(for ,var across ,sequence)
-   nil))
+   nil
+   nil
+   nil
+   `(for ,var across ,sequence)))
 
-(define-traverse-expander hash-table (var sequence)
-  (with-gensyms (seq)
+(define-traverse-expander hash-table (var form)
+  (with-gensyms (table)
     (let* ((key (if (listp var) (first var) (gensym "KEY")))
 	   (value (if (listp var) (second var) (gensym "VALUE")))
 	   (whole (unless (listp var) var)))
 
-      (append
-       `(with ,seq = ,sequence)
-       `(for ,key being the hash-key of ,seq)
+      (values
+       `((,table ,form))
 
-       (when value
-	 `(for ,value being the hash-value of ,seq))
+       nil
+       nil
 
-       (when whole
-	 `(for ,whole = (cons ,key ,value)))))))
+       (append
+        (when key
+          `(for ,key being the hash-key of ,table))
+
+        (when value
+          `(for ,value being the hash-value of ,table))
+
+        (when whole
+          `(for ,whole = (list ,key ,value))))))))

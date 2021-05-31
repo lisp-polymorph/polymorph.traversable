@@ -20,13 +20,29 @@ The expander function is called with three arguments:
 
  3. The environment in which the traverse macro form is found.
 
-It should return two values:
+It should return the following values:
 
- 1. A list of loop keywords which are spliced into the resulting LOOP
-    form.
+ 1. A list of bindings which are established before the first
+    iteration and remain throughout the entire traversal. Each element
+    is of the form (VAR INIT-FORM) where VAR is the symbol naming the
+    variable and INIT-FORM is the form which is evaluated to produce
+    the value to which the variable is bound.
 
- 2. A list of DECLARE expressions which are added to the body of the
-    loop.
+ 2. A list of bindings which are established before each
+    iteration. Each element is of the form (VAR INIT-FORM STEP-FORM),
+    where VAR is the symbol naming the variable, INIT-FORM is a form
+    which is evaluated to produce the value to which the variable is
+    bound before the first iteration. STEP-FORM is a form which is
+    evaluated, before each subsequent iteration, to produce the value
+    to which the variable is bound after the first iteration. If the
+    STEP-FORM is omitted, the variable is bound to INIT-FORM,
+    reevaluated, before each iteration.
+
+ 3. The condition form. This is evaluated before each iteration and
+    when it evaluates to false (NIL), the traversal is terminated.
+
+ 4. A list of additional LOOP keywords, which are inserted between the
+ bindings and the loop condition form.
 
 Traversal expander functions closer to the front of the list are
 prioritized over those further from the front.")
@@ -50,18 +66,25 @@ CONTAINER is the container form.
 ENV is the environment in which the TRAVERSE macro form is found.
 
 BODY is the list of forms, evaluated in an implicit PROGN, comprising
-the expander function. The function should return two values, a list
-of loop keywords that is spliced in the LOOP form, and a list of
-declarations."
+the expander function. See the documentation for *TRAVERSE-EXPANDERS*
+for details on what values are expected to be returned by a traversal
+expander function."
 
   `(eval-when (:compile-toplevel :load-toplevel :execute)
-     (push
-      (cons ',type
-	    (lambda (,var ,container ,env)
-	      (declare (ignorable ,env))
+     (if-let (cell (assoc ',type *traverse-expanders*))
+       (setf (cdr cell)
+             (lambda (,var ,container ,env)
+	       (declare (ignorable ,env))
 
-	      ,@body))
-      *traverse-expanders*)))
+	       ,@body))
+
+       (push
+        (cons ',type
+	      (lambda (,var ,container ,env)
+	        (declare (ignorable ,env))
+
+	        ,@body))
+        *traverse-expanders*))))
 
 (defun expand-traverse (var container env)
   "Expand a traversal for a container.
@@ -80,7 +103,45 @@ ENV is the lexical environment of the TRAVERSE macro form."
     (loop for (type . expander) in *traverse-expanders*
        do
 	 (when (subtypep seq-type type)
-	   (return (funcall expander var container env))))))
+	   (return (make-traverse-expansion expander var container env))))))
+
+(defun make-traverse-expansion (fn var container env)
+  "Make a traversal expansion using a given expander function.
+
+FN is the expander function.
+
+VAR is the variable to which the items of the container are bound.
+
+CONTAINER is the form which returns the container.
+
+ENV is the environment in which the TRAVERSE macro from is found.
+
+Returns a list of CL:LOOP keywords."
+
+  (multiple-value-bind (withs fors condition keywords)
+      (funcall fn var container env)
+
+    (append
+     (loop for with in withs
+        append
+          (destructuring-bind (var form) with
+            (check-type var symbol)
+            `(with ,var = ,form)))
+
+     (loop for binding in fors
+        append
+          (destructuring-bind (var init &optional (step nil step-p))
+              binding
+            (check-type var symbol)
+
+            `(for ,var = ,init
+                  ,@(when step-p
+                      `(then ,step)))))
+
+     keywords
+
+     (when condition
+       `(while condition)))))
 
 
 (defmacro traverse ((&rest bindings) &body body &environment env)
