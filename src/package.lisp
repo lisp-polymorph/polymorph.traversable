@@ -13,6 +13,7 @@
   (:export
    #:traverse
    #:define-traverse-expander
+   #:make-iterator
    #:find #:find-if
    #:position #:position-if
    #:count #:count-if))

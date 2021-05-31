@@ -4,6 +4,14 @@
 
 (in-package #:polymorph.traversable)
 
+(define-traverse-expander t (var sequence)
+  (with-gensyms (it more?)
+    (values
+     `((,it (make-iterator ,sequence)))
+     `(((,more? ,var)
+        (multiple-value-list (funcall ,it))))
+     more?)))
+
 (define-traverse-expander list (var sequence)
   (values
    nil
