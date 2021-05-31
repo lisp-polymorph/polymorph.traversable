@@ -141,7 +141,7 @@ Returns a list of CL:LOOP keywords."
      keywords
 
      (when condition
-       `(while condition)))))
+       `(while ,condition)))))
 
 
 (defmacro traverse ((&rest bindings) &body body &environment env)
