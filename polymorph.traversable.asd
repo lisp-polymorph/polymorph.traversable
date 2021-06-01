@@ -6,7 +6,7 @@
   :license  "Specify license here"
   :version "0.0.1"
   :serial t
-  :depends-on (#:polymorph.maths #:polymorph.access)
+  :depends-on (#:polymorph.maths #:polymorph.access #:polymorph.callable)
   :components ((:module
                 "src"
                 :serial t
