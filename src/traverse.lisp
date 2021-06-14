@@ -89,16 +89,16 @@ expander function."
      (if-let (cell (assoc ',type *traverse-expanders*))
        (setf (cdr cell)
              (lambda (,var ,container ,env)
-	       (declare (ignorable ,env))
+           (declare (ignorable ,env))
 
-	       ,@body))
+           ,@body))
 
        (push
         (cons ',type
-	      (lambda (,var ,container ,env)
-	        (declare (ignorable ,env))
+          (lambda (,var ,container ,env)
+            (declare (ignorable ,env))
 
-	        ,@body))
+            ,@body))
         *traverse-expanders*))))
 
 (defun expand-traverse (var container env)
@@ -117,8 +117,8 @@ ENV is the lexical environment of the TRAVERSE macro form."
   (let ((seq-type (%form-type container env)))
     (loop for (type . expander) in *traverse-expanders*
        do
-	 (when (subtypep seq-type type)
-	   (return (make-traverse-expansion expander var container env))))))
+     (when (subtypep seq-type type)
+       (return (make-traverse-expansion expander var container env))))))
 
 (defun make-traverse-expansion (fn var container env)
   "Make a traversal expansion using a given expander function.
@@ -172,14 +172,14 @@ macro early."
 
   (multiple-value-bind (keywords decls)
       (loop
-	 for (var sequence) in bindings
-	 for (keyword-list decl) =
-	   (multiple-value-list (expand-traverse var sequence env))
+     for (var sequence) in bindings
+     for (keyword-list decl) =
+       (multiple-value-list (expand-traverse var sequence env))
 
-	 append keyword-list into keywords
-	 append decl into decls
+     append keyword-list into keywords
+     append decl into decls
 
-	 finally (return (values keywords decls)))
+     finally (return (values keywords decls)))
 
    `(loop
        ,@keywords

@@ -29,8 +29,8 @@
 (define-traverse-expander hash-table (var form)
   (with-gensyms (table)
     (let* ((key (if (listp var) (first var) (gensym "KEY")))
-	   (value (if (listp var) (second var) (gensym "VALUE")))
-	   (whole (unless (listp var) var)))
+       (value (if (listp var) (second var) (gensym "VALUE")))
+       (whole (unless (listp var) var)))
 
       (values
        `((,table ,form))
