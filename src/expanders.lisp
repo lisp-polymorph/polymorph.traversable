@@ -153,13 +153,13 @@ to front, otherwise it is traversed from front to back.")
                `((,v-end ,end)))
 
            (,end-index
-            (oif ,v-end ,v-end (cl:length ,vec)))
+            (oif ,v-end ,v-end (1- (cl:length ,vec))))
 
            (,index
             (oif ,v-from-end ,end-index ,v-start)))
 
          `(when (oif ,v-from-end
-                     (cl>= ,index ,start)
+                     (cl:>= ,index ,start)
                      (cl:< ,index ,end-index))
 
             (let ((,element (aref ,vec ,index)))
