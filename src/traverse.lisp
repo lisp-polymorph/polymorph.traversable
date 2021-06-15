@@ -19,169 +19,227 @@ following values:
 
 2. The next item in the container.")
 
-(defvar *traverse-expanders* nil
-  "Association list of container traversal expanders for the TRAVERSE macro.
+(defvar *traverse-expanders* (make-hash-table :test #'equal)
+  "Hash-table of container traversal expanders for the TRAVERSE macro.
 
-Each item is an entry of the form (TYPE . EXPANDER-FUNCTION) where
-TYPE is a container type, and EXPANDER-FUNCTION is the corresponding
-traversal expander function for the given container type.
+Each key denotes a container type with the corresponding value storing
+the traversal expander function for that container type.
 
-The expander function is called with three arguments:
+The expander function is called with four arguments:
 
- 1. The variable to which each successive elements of the container
-    are bound.
+ 1. The container type.
 
- 2. The container form.
+ 2. The variable to which each successive elements of the container
+    are bound. This may be a list to support destructuring.
+
+ 3. The container form.
+
+ 4. The additional arguments passed after the container. Should be
+    able to interpret the following keyword arguments:
+
+    :START - Starting index of the element from which to start the
+             traversal.
+
+    :END - Index of the element at which to stop the traversal. If NIL
+           the entire container is traversed.
+
+    :FROM-END - If true the container should be traversed in reverse,
+                starting from the last element.
+
+ 5. The form to be executed for each iteration of the traversal.
 
  3. The environment in which the traverse macro form is found.
 
 It should return the following values:
 
- 1. A list of bindings which are established before the first
-    iteration and remain throughout the entire traversal. Each element
-    is of the form (VAR INIT-FORM) where VAR is the symbol naming the
-    variable and INIT-FORM is the form which is evaluated to produce
-    the value to which the variable is bound.
+ 1. A list of bindings, as by LET*, which are established before the
+    first iteration and remain visible to the body forms throughout
+    all iterations.
 
- 2. A list of bindings which are established before each
-    iteration. Each element is of the form (VAR INIT-FORM STEP-FORM),
-    where VAR is the symbol naming the variable, INIT-FORM is a form
-    which is evaluated to produce the value to which the variable is
-    bound before the first iteration. STEP-FORM is a form which is
-    evaluated, before each subsequent iteration, to produce the value
-    to which the variable is bound after the first iteration. If the
-    STEP-FORM is omitted, the variable is bound to INIT-FORM,
-    reevaluated, before each iteration.
+ 3. The new body form to be evaluated at each iteration.
 
- 3. The condition form. This is evaluated before each iteration and
-    when it evaluates to false (NIL), the traversal is terminated.
+ 4. A form to wrap the entire iteration code. The local macro (&BODY)
+    is available to it which expands to the entire iteration code.
 
- 4. A list of additional LOOP keywords, which are inserted between the
- bindings and the loop condition form.
+Traversal expander functions are ordered with those specialized on the
+most derived type, i.e. a type which is a subtype of the types of the
+other expander functions, ordered first.")
 
-Traversal expander functions closer to the front of the list are
-prioritized over those further from the front.")
-
-(defmacro define-traverse-expander (type (var container &optional (env (gensym "ENV"))) &body body)
+(defmacro define-traverse-expander (type (type-var element container args body &optional (env (gensym "ENV"))) &body forms)
   "Define a container traversal expander function.
-
-The traversal expander function is pushed to the front of the
-*TRAVERSE-EXPANDERS* list, thus it takes priority over previously
-defined traversal expanders.
 
 TYPE is the container type to which this function applies. It will be
 applied to all containers which are a subtype of this type.
 
-VAR is the variable to which successive container elements should be
-bound. This need not be a symbol but may also be a list to allow for
-destructuring.
+TYPE-VAR is the variable which will receive the actual container type.
+
+ELEMENT is the variable to which successive container elements should
+be bound. This need not be a symbol but may also be a list to allow
+for destructuring.
 
 CONTAINER is the container form.
+
+ARGS is the variable receiving the list of arguments passed after the
+container form.
+
+BODY is the variable receiving the list of forms to be executed at
+each iteration.
 
 ENV is the environment in which the TRAVERSE macro form is found.
 
-BODY is the list of forms, evaluated in an implicit PROGN, comprising
-the expander function. See the documentation for *TRAVERSE-EXPANDERS*
-for details on what values are expected to be returned by a traversal
-expander function."
+FORMS are the list of forms, evaluated in an implicit PROGN, comprising
+the expander function.
+
+See the documentation for *TRAVERSE-EXPANDERS* for more details on the
+arguments and on what values are expected to be returned by a
+traversal expander function."
 
   `(eval-when (:compile-toplevel :load-toplevel :execute)
-     (if-let (cell (assoc ',type *traverse-expanders*))
-       (setf (cdr cell)
-             (lambda (,var ,container ,env)
-           (declare (ignorable ,env))
+     (setf (gethash ',type *traverse-expanders*)
+           (lambda (,type-var ,element ,container ,args ,body ,env)
+             (declare (ignorable ,type-var ,env))
+             ,@forms))))
 
-           ,@body))
+(defun traverse-expander (container-type env)
+  "Return the most specific traversal expander function for a given container type.
 
-       (push
-        (cons ',type
-          (lambda (,var ,container ,env)
-            (declare (ignorable ,env))
+CONTAINER-TYPE is the container type for which to return the expander
+function.
 
-            ,@body))
-        *traverse-expanders*))))
+ENV is the environment in which the TRAVERSE form is found.
 
-(defun expand-traverse (var container env)
-  "Expand a traversal for a container.
+Returns the expander function. If there is no function for the given
+container type or a non-function value is stored in
+*TRAVERSE-EXPANDERS*, a `type-error' is signalled."
 
-Calls the first function in *TRAVERSE-EXPANDERS* of which the type of
-CONTAINER, in ENV, is a subtype.
+  (let ((expander-type t)
+        (expander (gethash t *traverse-expanders*)))
 
-VAR is the variable which should be bound to successive container
-elements.
-
-CONTAINER is the container form.
-
-ENV is the lexical environment of the TRAVERSE macro form."
-
-  (let ((seq-type (%form-type container env)))
-    (loop for (type . expander) in *traverse-expanders*
+    (loop
+       for type being the hash-keys of *traverse-expanders*
+       for fn being the hash-values of *traverse-expanders*
        do
-     (when (subtypep seq-type type)
-       (return (make-traverse-expansion expander var container env))))))
+         (when (and (subtypep container-type type env)
+                    (subtypep type expander-type env))
 
-(defun make-traverse-expansion (fn var container env)
-  "Make a traversal expansion using a given expander function.
+           (setf expander-type type
+                 expander fn)))
 
-FN is the expander function.
+    (check-type expander function)
+    expander))
 
-VAR is the variable to which the items of the container are bound.
+(defmacro traverse (name/bindings &body forms &environment env)
+  "Iterate over the elements of one or more containers.
 
-CONTAINER is the form which returns the container.
+   The macro arguments can be in one of the following two forms:
 
-ENV is the environment in which the TRAVERSE macro from is found.
+    1. (NAME (&REST BINDINGS) &BODY BODY)
 
-Returns a list of CL:LOOP keywords."
+    2. ((&REST BINDINGS) &BODY BODY)
 
-  (multiple-value-bind (withs fors condition keywords)
-      (funcall fn var container env)
+   NAME is a symbol serving as the name of the BLOCK from which the
+   forms in BODY can return, using (RETURN-FROM NAME ...). If not
+   given defaults to NIL.
 
-    (append
-     (loop for with in withs
-        append
-          (destructuring-bind (var form) with
-            `(with ,var = ,form)))
+   Each element of BINDINGS is a list of the form (VAR SEQUENCE
+   . ARGS), where VAR is the variable to which the element of the
+   container CONTAINER is bound, at each iteration, and ARGS are
+   additional traversal arguments.
 
-     (loop for binding in fors
-        append
-          (destructuring-bind (var init &optional (step nil step-p))
-              binding
+   FORMS is a list of forms evaluated at each iteration. RETURN-FROM to
+   the block named NAME may be used to terminate the iteration early
+   and return a value from the TRAVERSE form. NIL is returned if
+   there is no explicit RETURN."
 
-            `(for ,var = ,init
-                  ,@(when step-p
-                      `(then ,step)))))
+  (declare (ignore env))
 
-     keywords
+  ;;TODO: Check SAFETY level in ENV, and if 3 expand directly to the
+  ;;slow iterator based implementation?
 
-     (when condition
-       `(while ,condition)))))
+  (let ((name (if (symbolp name/bindings)
+                  name/bindings
+                  nil))
 
+        (bindings (if (symbolp name/bindings)
+                      (first forms)
+                      name/bindings))
 
-(defmacro traverse ((&rest bindings) &body body &environment env)
-  "Traverse one or more containers with successive elements bound to a variable.
+        (forms (if (symbolp name/bindings)
+                   (rest forms)
+                   forms)))
 
-BINDINGS is a list of the form (VAR CONTAINER) where VAR is the name
-of the variable(s) to which successive elements of
-CONTAINER (evaluated) are bound.
+    `(traverse-fast% ,name ,bindings ,@forms)))
 
-BODY is the list of forms which are evaluated at each iteration,
-during which each VAR in BINDINGS is bound to the next successive
-element of the corresponding CONTAINER. The first elements of BODY may
-be DECLARE expressions. RETURN may be used to return from the TRAVERSE
-macro early."
+(defmacro traverse-fast% (name (&rest bindings) &body forms &environment env)
+  "Optimized expansion of TRAVERSE.
 
-  (multiple-value-bind (keywords decls)
-      (loop
-     for (var sequence) in bindings
-     for (keyword-list decl) =
-       (multiple-value-list (expand-traverse var sequence env))
+Generates optimized iteration code for the containers types, using the
+traverse expander functions defined with DEFINE-TRAVERSE-EXPANDER."
 
-     append keyword-list into keywords
-     append decl into decls
+  (labels ((expand-traverse (element container args body env)
+             (with-type-info (type () env) container
+               (multiple-value-list
+                (funcall (traverse-expander type env)
+                         type
+                         element
+                         container
+                         args
+                         body
+                         env))))
 
-     finally (return (values keywords decls)))
+           (wrap-parent (old new)
+             (if new
+                 `(macrolet ((&body ()
+                               ,(make-&body-expansion old)))
 
-   `(loop
-       ,@keywords
-       do
-       (locally ,@decls ,@body))))
+                    ,new)
+                 old))
+
+           (make-&body-expansion (old)
+             (if old
+                 `',old
+                 ''(loop-body)))
+
+           (make-loop (bindings body parent)
+             (make-bindings
+              bindings
+              (make-parent
+               parent
+               (make-block (make-tagbody body)))))
+
+           (make-parent (parent body)
+             (if parent
+                 `(macrolet ((loop-body ()
+                                ',body))
+                    ,parent)
+                 body))
+
+           (make-tagbody (body)
+             (with-gensyms (start)
+               `(tagbody
+                   ,start
+                   (macrolet ((next-iter ()
+                                `(go ,',start)))
+                     ,body))))
+
+           (make-block (body)
+             `(block ,name
+                ,body))
+
+           (make-bindings (bindings body)
+             `(let* ,bindings ,body)))
+
+    (loop
+       for (element container . args) in bindings
+       for (bindings body parent) =
+         (expand-traverse element container args `(progn ,@forms (next-iter)) env) then
+         (expand-traverse element container args loop-body env)
+
+       for loop-body = body
+       for loop-parent = (wrap-parent loop-parent parent)
+
+       append bindings into all-bindings
+
+       finally
+         (return
+           (make-loop all-bindings loop-body loop-parent)))))
