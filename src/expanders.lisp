@@ -114,12 +114,143 @@ to front, otherwise it is traversed from front to back.")
 
         form)))
 
+(defmacro with-constant-values ((&rest things) env &body clauses)
+  "Check whether one or more forms are constant and retrieve their values.
+
+THINGS is a list of bindings each of the form (VAR INITFORM). Each
+INITFORM's is evaluated and the result is checked whether it is a
+constant form in the environment ENV. If so the constant value is
+stored in VAR otherwise the resulting form (to which INITFORM
+evaluates) itself is stored in VAR. Alternatively each element of
+THINGS can be a symbol in which case it is a shorthand for (VAR VAR).
+
+ENV is the environment in which to check whether the forms are
+constants.
+
+CLAUSES is a list of clauses each of the form (VARS . FORMS), where
+VARS is a list of variables, listed in THINGS, which should be
+constant in order for the corresponding FORMS to be evaluated. If all
+variables in VARS are constants FORMS are evaluated in an implicit
+PROGN, with the result of the last form returned. If not all of VARS
+are constant, FORMS are not evaluated and the next clause is tried. If
+no clauses succeeds NIL is returned."
+
+  (let ((const-vars (pairlis (mapcar #'ensure-car things)
+                             (make-gensym-list (length things) "CONST?"))))
+
+    (labels ((make-get-value (thing body)
+               (destructuring-bind (var &optional (form var))
+                   (ensure-list thing)
+
+                 (let ((const-var (cdr (assoc var const-vars))))
+                   (assert const-var)
+
+                   `(multiple-value-bind (,var ,const-var)
+                        (constant-form-value ,form ,env)
+
+                      ,body))))
+
+             (const-var (var)
+               (let ((cvar (cdr (assoc var const-vars))))
+                 (unless cvar
+                   (error "Variable ~s in clause not one of ~s."
+                          var (mapcar #'ensure-car things)))
+
+                 cvar))
+
+             (make-clause (clause)
+               (destructuring-bind (vars &rest body) clause
+                 `((and ,@(mapcar #'const-var vars))
+                   ,@body))))
+
+      (cl:reduce
+       #'make-get-value
+       things
+       :from-end t
+       :initial-value
+       `(cond ,@(mapcar #'make-clause clauses))))))
+
 ;;; Lists
 
-(define-traverse-expander list (type element form args body)
+(define-traverse-expander list (type element form args body env)
+  (destructuring-bind (&key from-end (start 0) end) args
+    (with-constant-values (from-end start end) env
+      ((from-end start end)
+       (cond
+         (from-end
+          (make-traverse-list
+           element
+           `(cl:reverse (cl:subseq ,form ,start ,end))
+           body))
+
+         (end
+          (make-traverse-bounded element form start end body))
+
+         ((> start 0)
+          (make-traverse-list element `(nthcdr ,start form) body))
+
+         (t
+          (make-traverse-list element form body))))
+
+      ((start end)
+       (cond
+         (end
+          (make-traverse-list
+           element
+           `(if ,from-end
+                (cl:reverse (cl:subseq ,form ,start ,end))
+                (cl:subseq ,form ,start ,end))
+           body))
+
+         ((> start 0)
+          (make-traverse-list
+           element
+           `(if ,from-end
+                (cl:reverse (nthcdr ,start ,form))
+                (nthcdr ,start ,form))
+           body))
+
+         (t
+          (make-traverse-list
+           element
+           `(if ,from-end
+                (cl:reverse ,form)
+                ,form)
+           body))))
+
+      (nil
+       (make-traverse-list
+        element
+        `(if ,from-end
+             (cl:reverse (cl:subseq ,form ,start ,end))
+             (cl:subseq ,form ,start ,end))
+        body)))))
+
+(defun make-traverse-bounded (element form start end body)
+  "Generate a TRAVERSE expansion for a bounded list traversal, when END is non-NIL."
+
+  (multiple-value-bind (bindings body parent)
+      (make-traverse-list
+       element
+       `(nthcdr ,start ,form)
+       body)
+
+    (with-gensyms (index)
+      (values
+       `((,index ,start) ,@bindings)
+
+       `(when (< ,index ,end)
+          (incf ,index)
+          ,body)
+
+       parent))))
+
+(defun make-traverse-list (element form body)
+  "Generate a TRAVERSE expansion for a unbounded list traversal."
+
   (with-gensyms (list)
     (values
-     `((,list (traverse-container ,form ,@args)))
+     `((,list ,form))
 
      `(when ,list
         (let ((,element (car ,list)))
@@ -127,7 +258,6 @@ to front, otherwise it is traversed from front to back.")
           ,body))
 
      nil)))
-
 
 ;;; Vectors
 
