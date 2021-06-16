@@ -69,51 +69,6 @@ IF-FALSE is the form to return if COND evaluates to false."
         (if cond if-true if-false)
         `(if ,cond ,if-true ,if-false))))
 
-(define-polymorphic-function traverse-container (container &key start end from-end)
-  :documentation
-  "Return the container (or sub-container of) to traverse.
-
-CONTAINER is a container.
-
-START is the index of the first element to traverse.
-
-END is the index of the element passed the last element to
-traverse. If NIL the entire container is traversed.
-
-FROM-END is a flag, which if true the container is traversed from back
-to front, otherwise it is traversed from front to back.")
-
-(defpolymorph traverse-container ((seq list) &key (start 0) end from-end)
-    list
-
-  (let ((seq (cl:subseq seq start end)))
-    (if from-end
-        (cl:reverse seq)
-        seq)))
-
-
-(defpolymorph-compiler-macro traverse-container (list &key (:start t) (:end t) (:from-end t)) (&whole form list &key (start 0) end from-end &environment env)
-
-  (multiple-value-bind (from-end c-from-end? start c-start? end c-end?)
-      (process-iterator-args `(:from-end ,from-end :start ,start :end ,end) env)
-
-    (if (and c-start? c-end?)
-        (let ((list (cond
-                      (end `(cl:subseq ,list ,start ,end))
-                      ((> start 0) `(nthcdr ,start ,list))
-                      (t list))))
-
-          (if c-from-end?
-              (if from-end
-                  `(cl:reverse ,list)
-                  list)
-
-              `(if ,from-end
-                   `(cl:reverse ,list)
-                   ,list)))
-
-        form)))
-
 (defmacro with-constant-values ((&rest things) env &body clauses)
   "Check whether one or more forms are constant and retrieve their values.
 
