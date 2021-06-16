@@ -4,21 +4,6 @@
 
 (in-package #:polymorph.traversable)
 
-(define-polymorphic-function make-iterator (container)
-  :overwrite t
-  :documentation
-  "Return an iterator function for a container.
-
-Should return a function of no argument which when invoked returns the
-following values:
-
-1. True if there are more items in the container, i.e. a new item is
-   returned in the second value. NIL if the end of the sequence has
-   been reached, i.e. the second return value is not a new item of the
-   sequence.
-
-2. The next item in the container.")
-
 (defvar *traverse-expanders* (make-hash-table :test #'equal)
   "Hash-table of container traversal expanders for the TRAVERSE macro.
 
