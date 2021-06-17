@@ -6,8 +6,7 @@
 (define-polymorphic-function find (item container &key from-end start end
                                     key test) :overwrite t)
 
-
-
+#||
 (defpolymorph (find :inline t) ((item t) (container array) &key ((from-end boolean) nil)
                                 ((start ind) 0) ((end ind) (size container))
                                 ((key (maybe function)) nil) ((test (maybe function)) nil))
@@ -87,11 +86,17 @@
                         :finally (return (values nil nil)))))
           (error 'simple-error :format-control
                  "Start, end or from-end arguments cannot be provided for multidimensional arrays"))))
+||#
 
-
-
-
-
+(defpolymorph (find :inline t) ((item t) (container array) &key ((from-end boolean) nil)
+                                  ((start ind) 0) ((end ind) (size container))
+                                  ((key (maybe function)) nil) ((test function) #'=))
+    (values t boolean &optional)
+  (declare (ignorable test key from-end))
+  (traverse ((cand container :start start :end end :from-end from-end))
+   (when (funcall test cand item)
+     (return-from find (values cand t))))
+  (values nil nil))
 
 
 (defpolymorph-compiler-macro find (t array &key (:from-end boolean) (:start ind) (:end (maybe ind))

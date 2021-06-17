@@ -12,10 +12,10 @@
                 :serial t
                 :components
                 ((:file "package")
-                 (:file "polymorph.traversable")
-		 (:file "traverse")
-		 (:file "expanders")
-                 (:file "iterators")))))
+                 (:file "traverse")
+                 (:file "expanders")
+                 (:file "iterators")
+                 (:file "polymorph.traversable")))))
 
 (asdf:defsystem #:polymorph.traversable/test
   :description "Unit tests for polymorph.traversable"
