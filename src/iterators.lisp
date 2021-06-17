@@ -26,10 +26,9 @@ following values:
 (defpolymorph make-iterator ((l list) &key (start 0) end from-end) t
   (let ((l (cond
              (from-end
-              (cl:reverse
-               (if (or end (plusp start))
-                   (cl:subseq l start end)
-                   l)))
+              (if (or end (plusp start))
+                  (cl:nreverse (cl:subseq l start end))
+                  (cl:reverse l)))
 
              ((plusp start)
               (nthcdr start l))
