@@ -223,38 +223,39 @@ no clauses succeeds NIL is returned."
     (let ((v-from-end (if c-from-end? from-end (gensym "FROM-END")))
           (v-start (if c-start? start (gensym "START")))
           (v-end (if c-end? end (gensym "END"))))
+      (with-type-info (type (typename &optional (elt 'cl:*)) env) form
 
-      (with-gensyms (vec index end-index)
-        (values
-         `((,vec ,form)
+        (with-gensyms (vec index end-index)
+          (values
+           `((,vec (the ,type ,form))
 
-           ,@(unless c-from-end?
-               `((,v-from-end ,from-end)))
+             ,@(unless c-from-end?
+                 `((,v-from-end ,from-end)))
 
-           ,@(unless c-start?
-               `((,v-start ,start)))
+             ,@(unless c-start?
+                 `((,v-start ,start)))
 
-           ,@(unless c-end?
-               `((,v-end ,end)))
+             ,@(unless c-end?
+                 `((,v-end ,end)))
 
-           (,end-index
-            (oif ,v-end ,v-end (1- (cl:length ,vec))))
+             (,end-index
+              (oif ,v-end ,v-end (1- (cl:length ,vec))))
 
-           (,index
-            (oif ,v-from-end ,end-index ,v-start)))
+             (,index
+              (oif ,v-from-end ,end-index ,v-start))))
 
-         (with-type-info (type (typename &optional (elt 'cl:*)) env) vec
-           `(when (oif ,v-from-end
-                       (cl:>= ,index ,start)
-                       (cl:< ,index ,end-index))
+          `(when (oif ,v-from-end
+                      (cl:>= ,index ,start
+                              (cl:< ,index ,end-index)))
 
-              (let ((,element (the ,elt (aref ,vec ,index))))
-                (oif ,v-from-end
-                     (cl:decf ,index)
-                     (cl:incf ,index))
-                ,body)))
+             (let ((,element (aref ,vec ,index)))
+               (declare (type ,elt ,element))
+               (oif ,v-from-end
+                    (cl:decf ,index
+                         (cl:incf ,index)))
+               ,body))
 
-         nil)))))
+          nil)))))
 
 
 ;;; Hash-Tables
