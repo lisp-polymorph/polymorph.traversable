@@ -79,7 +79,7 @@ following values:
    (loop
       for key being the hash-key of table
       for value being the hash-value of table
-      collect (list key value))
+      collect (cons key value))
 
    :start start
    :end end))

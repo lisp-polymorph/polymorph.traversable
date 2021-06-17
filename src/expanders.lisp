@@ -281,16 +281,16 @@ no clauses succeeds NIL is returned."
                `((,index ,start)
                  (,size (oif ,end ,end (hash-table-count ,table))))))
 
-         (let* ((key (if (listp element) (first element) (gensym "KEY")))
-                (value (if (listp element) (second element) (gensym "VALUE")))
-                (whole (unless (listp element) element)))
+         (let* ((key (if (consp element) (car element) (gensym "KEY")))
+                (value (if (consp element) (cdr element) (gensym "VALUE")))
+                (whole (unless (consp element) element)))
 
            `(multiple-value-bind (,more? ,key ,value)
                 (,next)
 
               (declare (ignorable ,key ,value))
 
-              (let (,@(when whole `((,whole (list ,key ,value)))))
+              (let (,@(when whole `((,whole (cons ,key ,value)))))
                 (when ,test
                   ,@inc
                   ,body))))
