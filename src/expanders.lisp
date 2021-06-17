@@ -135,7 +135,7 @@ no clauses succeeds NIL is returned."
          (from-end
           (make-traverse-list
            element
-           `(cl:reverse (cl:subseq ,form ,start ,end))
+           `(cl:nreverse (cl:subseq ,form ,start ,end))
            body))
 
          (end
@@ -153,7 +153,7 @@ no clauses succeeds NIL is returned."
           (make-traverse-list
            element
            `(if ,from-end
-                (cl:reverse (cl:subseq ,form ,start ,end))
+                (cl:nreverse (cl:subseq ,form ,start ,end))
                 (cl:subseq ,form ,start ,end))
            body))
 
@@ -177,7 +177,7 @@ no clauses succeeds NIL is returned."
        (make-traverse-list
         element
         `(if ,from-end
-             (cl:reverse (cl:subseq ,form ,start ,end))
+             (cl:nreverse (cl:subseq ,form ,start ,end))
              (cl:subseq ,form ,start ,end))
         body)))))
 
@@ -290,7 +290,7 @@ no clauses succeeds NIL is returned."
 
               (declare (ignorable ,key ,value))
 
-              (let (,@(when whole `(,whole (list ,key ,value))))
+              (let (,@(when whole `((,whole (list ,key ,value)))))
                 (when ,test
                   ,@inc
                   ,body))))
