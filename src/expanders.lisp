@@ -243,15 +243,16 @@ no clauses succeeds NIL is returned."
            (,index
             (oif ,v-from-end ,end-index ,v-start)))
 
-         `(when (oif ,v-from-end
-                     (cl:>= ,index ,start)
-                     (cl:< ,index ,end-index))
+         (with-type-info (type (typename &optional (elt 'cl:*)) env) vec
+           `(when (oif ,v-from-end
+                       (cl:>= ,index ,start)
+                       (cl:< ,index ,end-index))
 
-            (let ((,element (aref ,vec ,index)))
-              (oif ,v-from-end
-                   (cl:decf ,index)
-                   (cl:incf ,index))
-              ,body))
+              (let ((,element (the ,elt (aref ,vec ,index))))
+                (oif ,v-from-end
+                     (cl:decf ,index)
+                     (cl:incf ,index))
+                ,body)))
 
          nil)))))
 
