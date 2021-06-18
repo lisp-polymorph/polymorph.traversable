@@ -239,7 +239,7 @@ no clause succeeds NIL is returned."
                  `((,v-end ,end)))
 
              (,end-index
-              (oif ,v-end ,v-end (1- (cl:length ,vec))))
+              (oif ,v-end ,v-end (cl:length ,vec)))
 
              (,index
               (oif ,v-from-end ,end-index ,v-start)))
