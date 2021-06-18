@@ -217,45 +217,32 @@ no clause succeeds NIL is returned."
 ;;; Vectors
 
 (define-traverse-expander vector (type element form args body env)
-  (multiple-value-bind (from-end c-from-end? start c-start? end c-end?)
-      (process-iterator-args args env)
+  (destructuring-bind (&key from-end (start 0) end) args
+    (with-type-info (type (typename &optional (elt t)) env) form
+      (with-gensyms (vec index end-index v-from-end v-start v-end)
+        (values
+         `((,v-from-end ,from-end :constant t)
+           (,v-start ,start :constant t)
+           (,v-end ,end :constant t)
+           (,end-index (if ,v-end ,v-end (cl:length ,vec)) :constant t)
 
-    (let ((v-from-end (if c-from-end? from-end (gensym "FROM-END")))
-          (v-start (if c-start? start (gensym "START")))
-          (v-end (if c-end? end (gensym "END"))))
-      (with-type-info (type (typename &optional (elt t)) env) form
+           (,vec (the ,type ,form))
 
-        (with-gensyms (vec index end-index)
-          (values
-           `((,vec (the ,type ,form))
+           (,index
+            (oif ,v-from-end (cl:1- ,end-index) ,v-start)))
 
-             ,@(unless c-from-end?
-                 `((,v-from-end ,from-end)))
+         `(when (oif ,v-from-end
+                     (cl:>= ,index ,start)
+                     (cl:< ,index ,end-index))
 
-             ,@(unless c-start?
-                 `((,v-start ,start)))
+            (let ((,element (aref ,vec ,index)))
+              (declare (type ,elt ,element))
+              (oif ,v-from-end
+                   (cl:decf ,index)
+                   (cl:incf ,index))
+              ,body))
 
-             ,@(unless c-end?
-                 `((,v-end ,end)))
-
-             (,end-index
-              (oif ,v-end ,v-end (cl:length ,vec)))
-
-             (,index
-              (oif ,v-from-end ,end-index ,v-start)))
-
-           `(when (oif ,v-from-end
-                       (cl:>= ,index ,start)
-                       (cl:< ,index ,end-index))
-
-              (let ((,element (aref ,vec ,index)))
-                (declare (type ,elt ,element))
-                (oif ,v-from-end
-                     (cl:decf ,index)
-                     (cl:incf ,index))
-                ,body))
-
-           nil))))))
+         nil)))))
 
 
 ;;; Hash-Tables

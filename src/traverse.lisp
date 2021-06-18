@@ -212,7 +212,29 @@ traverse expander functions defined with DEFINE-TRAVERSE-EXPANDER."
                 ,body))
 
            (make-bindings (bindings body)
-             `(let* ,bindings ,body)))
+             (loop
+                for binding in bindings
+                for (init constant?) = (multiple-value-list (make-binding binding))
+                if constant? collect init into constants
+                else collect init into vars
+                finally
+                  (return
+                    `(symbol-macrolet ,constants
+                       (let* ,vars ,body)))))
+
+           (make-binding (binding)
+             (destructuring-bind (var init &key constant) binding
+               (if constant
+                   (multiple-value-bind (value constant?)
+                       (constant-form-value init env)
+
+                     (values
+                      `(,var ,value)
+                      constant?))
+
+                   (values
+                    `(,var ,init)
+                    nil)))))
 
     (loop
        for (element container . args) in bindings
