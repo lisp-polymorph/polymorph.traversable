@@ -242,20 +242,20 @@ no clause succeeds NIL is returned."
               (oif ,v-end ,v-end (1- (cl:length ,vec))))
 
              (,index
-              (oif ,v-from-end ,end-index ,v-start))))
+              (oif ,v-from-end ,end-index ,v-start)))
 
-          `(when (oif ,v-from-end
-                      (cl:>= ,index ,start)
-                      (cl:< ,index ,end-index))
+           `(when (oif ,v-from-end
+                       (cl:>= ,index ,start)
+                       (cl:< ,index ,end-index))
 
-             (let ((,element (aref ,vec ,index)))
-               (declare (type ,elt ,element))
-               (oif ,v-from-end
-                    (cl:decf ,index)
-                    (cl:incf ,index))
-               ,body))
+              (let ((,element (aref ,vec ,index)))
+                (declare (type ,elt ,element))
+                (oif ,v-from-end
+                     (cl:decf ,index)
+                     (cl:incf ,index))
+                ,body))
 
-          nil)))))
+           nil))))))
 
 
 ;;; Hash-Tables
