@@ -88,7 +88,7 @@ constant in order for the corresponding FORMS to be evaluated. If all
 variables in VARS are constants FORMS are evaluated in an implicit
 PROGN, with the result of the last form returned. If not all of VARS
 are constant, FORMS are not evaluated and the next clause is tried. If
-no clauses succeeds NIL is returned."
+no clause succeeds NIL is returned."
 
   (let ((const-vars (pairlis (mapcar #'ensure-car things)
                              (make-gensym-list (length things) "CONST?"))))
