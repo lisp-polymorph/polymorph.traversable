@@ -6,50 +6,6 @@
 
 ;;; Utilities
 
-(defun process-iterator-args (args env)
-  "Extract the values of the FROM-END, START and END keyword arguments.
-
-Checks whether the arguments evaluate to constant values, if so
-returns their values, otherwise returns the forms themselves.
-
-ARGS is the argument list.
-
-ENV is the environment in which they occur.
-
-Returns the following values:
-
-  1. Value of FROM-END argument.
-
-  2. True if the FROM-END argument is a constant, NIL otherwise.
-
-  3. Value of START argument.
-
-  4. True if the START argument is a constant, NIL otherwise.
-
-  5. Value of END argument.
-
-  6. True if the END argument is a constant, NIL otherwise."
-
-  (destructuring-bind (&key from-end (start 0) (end nil))
-      args
-
-    (multiple-value-bind (from-end constant-from-end?)
-        (constant-form-value from-end env)
-
-      (multiple-value-bind (start constant-start?)
-          (constant-form-value start env)
-
-        (multiple-value-bind (end constant-end?)
-            (constant-form-value end env)
-
-          (values
-           from-end
-           constant-from-end?
-           start
-           constant-start?
-           end
-           constant-end?))))))
-
 (defmacro oif (cond if-true &optional if-false &environment env)
   "Optimized IF expression.
 
@@ -248,43 +204,57 @@ no clause succeeds NIL is returned."
 ;;; Hash-Tables
 
 (define-traverse-expander hash-table (type element form args body env)
-  (multiple-value-bind (from-end c-from-end? start c-start? end c-end?)
-      (process-iterator-args args env)
+  (destructuring-bind (&key from-end (start 0) end) args
+    (declare (ignore from-end))
+    (with-gensyms (table next more? size index)
 
-    (declare (ignore from-end c-from-end?))
+      (flet ((make-body (test inc)
+               (let* ((key (if (consp element) (car element) (gensym "KEY")))
+                      (value (if (consp element) (cdr element) (gensym "VALUE")))
+                      (whole (unless (consp element) element)))
 
-    (with-gensyms (table more? next size index)
-      (let* ((counted? (or (not (and c-start? c-end?))
-                           (or (> start 0) end)))
+                 `(multiple-value-bind (,more? ,key ,value)
+                      (,next)
 
-             (test (if counted?
-                       `(and ,more? (cl:< ,index ,size))
-                       more?))
+                    (declare (ignorable ,key ,value))
 
-             (inc (when counted?
-                    `((cl:incf ,index)))))
+                    (let (,@(when whole `((,whole (cons ,key ,value)))))
+                      (when ,test
+                        ,@inc
+                        ,body))))))
 
-        (values
-         `((,table ,form)
-           ,@(when counted?
-               `((,index ,start)
-                 (,size (oif ,end ,end (hash-table-count ,table))))))
+        (with-constant-values (start end) env
+          ((start end)
+           (let* ((counted? (or (> start 0) end))
 
-         (let* ((key (if (consp element) (car element) (gensym "KEY")))
-                (value (if (consp element) (cdr element) (gensym "VALUE")))
-                (whole (unless (consp element) element)))
+                  (test (if counted?
+                            `(and ,more? (cl:< ,index ,size))
+                            more?))
 
-           `(multiple-value-bind (,more? ,key ,value)
-                (,next)
+                  (inc (when counted?
+                         `((cl:incf ,index)))))
 
-              (declare (ignorable ,key ,value))
+             (values
+              `((,table ,form)
+                ,@(when counted?
+                    `((,index ,start)
+                      (,size ,(or end `(hash-table-count ,table))))))
 
-              (let (,@(when whole `((,whole (cons ,key ,value)))))
-                (when ,test
-                  ,@inc
-                  ,body))))
+              (make-body test inc)
 
-         `(with-hash-table-iterator (,next ,table) (&body)))))))
+              `(with-hash-table-iterator (,next ,table) (&body)))))
+
+          (nil
+           (values
+            `((,table ,form)
+              (,index ,start)
+              (,size (or ,end (hash-table-count ,table))))
+
+            (make-body
+             `(and ,more? (cl:< ,index ,size))
+             `((cl:incf ,index)))
+
+            `(with-hash-table-iterator (,next ,table) (&body)))))))))
 
 
 ;;; Default
