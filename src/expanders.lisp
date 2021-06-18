@@ -223,7 +223,7 @@ no clauses succeeds NIL is returned."
     (let ((v-from-end (if c-from-end? from-end (gensym "FROM-END")))
           (v-start (if c-start? start (gensym "START")))
           (v-end (if c-end? end (gensym "END"))))
-      (with-type-info (type (typename &optional (elt 'cl:*)) env) form
+      (with-type-info (type (typename &optional (elt t)) env) form
 
         (with-gensyms (vec index end-index)
           (values
@@ -245,14 +245,14 @@ no clauses succeeds NIL is returned."
               (oif ,v-from-end ,end-index ,v-start))))
 
           `(when (oif ,v-from-end
-                      (cl:>= ,index ,start
-                              (cl:< ,index ,end-index)))
+                      (cl:>= ,index ,start)
+                      (cl:< ,index ,end-index))
 
              (let ((,element (aref ,vec ,index)))
                (declare (type ,elt ,element))
                (oif ,v-from-end
-                    (cl:decf ,index
-                         (cl:incf ,index)))
+                    (cl:decf ,index)
+                    (cl:incf ,index))
                ,body))
 
           nil)))))
