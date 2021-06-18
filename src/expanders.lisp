@@ -180,9 +180,9 @@ no clause succeeds NIL is returned."
          `((,v-from-end ,from-end :constant t)
            (,v-start ,start :constant t)
            (,v-end ,end :constant t)
-           (,end-index (if ,v-end ,v-end (cl:length ,vec)) :constant t)
 
            (,vec (the ,type ,form))
+           (,end-index (if ,v-end ,v-end (cl:length ,vec)) :constant t)
 
            (,index
             (oif ,v-from-end (cl:1- ,end-index) ,v-start)))
