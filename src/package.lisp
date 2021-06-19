@@ -7,7 +7,9 @@
                     (:ie :introspect-environment))
   (:shadow #:find #:find-if
            #:position #:position-if
-           #:count #:count-if)
+           #:count #:count-if
+           #:map #:reduce
+           #:remove #:remove-if)
   (:shadowing-import-from #:polymorph.maths #:=)
   (:shadowing-import-from #:polymorph.access #:at #:row-major-at #:size)
   (:export
