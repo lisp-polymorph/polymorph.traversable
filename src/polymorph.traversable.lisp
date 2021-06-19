@@ -12,10 +12,12 @@
     (values t boolean &optional)
   (traverse ((cand container :start start :end (or end (size container)) :from-end from-end))
     (let ((cand (funcall key cand)))
-      (when (funcall test cand item)
-        (return-from find (values cand t)))))
+     (when (funcall test cand item)
+       (return-from find (values cand t)))))
   (values nil nil))
 
+;; TODO compiler-macros for type inference
+;; Result is a (or null (key return type))
 
 
 (defpolymorph (find :inline t) ((item t) (container hash-table) &key ((from-end null) nil)
@@ -56,6 +58,9 @@
       (when (funcall predicate cand)
         (return-from find-if (values cand t)))))
    (values nil nil))
+
+;; TODO compiler-macros for type inference
+;; Result is a (or null (key return type))
 
 
 
@@ -175,3 +180,66 @@
              :when (funcall predicate pair)
                :do (incf (the ind res))
              :finally (return res))))))
+
+
+
+
+;;Reduce
+(define-polymorphic-function reduce (function container &key from-end start
+                                              end key initial-value) :overwrite t)
+
+(defpolymorph (reduce :inline t) ((function function) (container t) &key ((from-end boolean) nil)
+                                  ((start ind) 0) ((end (maybe ind)) nil)
+                                  ((key function) #'identity) ((initial-value t) nil))
+    (values t &optional)
+ (if initial-value
+     (progn
+       (traverse ((cand container :start start
+                                  :end (or end (size container))
+                                  :from-end from-end))
+         (setf initial-value
+               (funcall function initial-value
+                        (funcall key cand))))
+       initial-value)
+     (let ((initial-value (at container start)))
+       (traverse ((cand container :start (+ 1 start)
+                                  :end (or end (size container))
+                                  :from-end from-end))
+         (setf initial-value
+               (funcall function initial-value
+                        (funcall key cand))))
+       initial-value)))
+
+;; TODO compiler-macros for type inference
+;; Result is a function return type
+;; or initial value if the traverse never happens (= start end)
+;; Also check function to be capable of at least taking 2 arguments
+;; with types of (or init-value-type its own return type) and contained element
+;; type
+
+
+(defpolymorph (reduce :inline t) ((function function) (container hash-table) &key ((from-end null) nil)
+                                  ((start (eql 0)) 0) ((end null) nil)
+                                  ((key function) #'identity) ((initial-value t) nil))
+    (values t &optional)
+    (declare (ignorable from-end start end))
+    (cond
+      ((or (eq key #'car) (eq key #'first))
+       (loop :for k :being :the :hash-key :in container
+             :do (setf initial-value (funcall function initial-value k))
+             :finally (return initial-value)))
+      ((or (eq key #'cdr) (eq key #'rest))
+       (loop :for v :being :the :hash-value :in container
+             :do (setf initial-value (funcall function initial-value v))
+             :finally (return initial-value)))
+      (t
+       (loop :for k :being :the :hash-keys :in container
+               :using (hash-value v)
+             :do (setf initial-value
+                       (funcall function initial-value
+                                (funcall key (cons k v))))
+             :finally (return initial-value)))))
+
+
+;;(define-polymorphic-function map (result-type function container &rest containers) :overwrite t)
+;; TODO this turned out to be way harder then I thought. It needs iterators for runtime implementation
