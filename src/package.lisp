@@ -11,7 +11,7 @@
            #:map #:reduce
            #:remove #:remove-if)
   (:shadowing-import-from #:polymorph.maths #:=)
-  (:shadowing-import-from #:polymorph.access #:at #:row-major-at #:size)
+  (:shadowing-import-from #:polymorph.access #:at #:row-major-at #:size #:emptyp)
   (:export
    #:traverse
    #:define-traverse-expander

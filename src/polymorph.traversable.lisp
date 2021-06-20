@@ -190,25 +190,32 @@
 
 (defpolymorph (reduce :inline t) ((function function) (container t) &key ((from-end boolean) nil)
                                   ((start ind) 0) ((end (maybe ind)) nil)
-                                  ((key function) #'identity) ((initial-value t) nil))
+                                  ((key function) #'identity) ((initial-value t) nil initp))
     (values t &optional)
- (if initial-value
+
+  (cond
+    (initp
      (progn
        (traverse ((cand container :start start
-                                  :end (or end (size container))
+                                  :end end
                                   :from-end from-end))
          (setf initial-value
                (funcall function initial-value
                         (funcall key cand))))
-       initial-value)
-     (let ((initial-value (at container start)))
+       initial-value))
+
+    ((emptyp container)
+     (funcall function))
+
+    (t
+     (let ((initial-value (funcall key (at container start))))
        (traverse ((cand container :start (+ 1 start)
-                                  :end (or end (size container))
+                                  :end end
                                   :from-end from-end))
          (setf initial-value
                (funcall function initial-value
                         (funcall key cand))))
-       initial-value)))
+       initial-value))))
 
 ;; TODO compiler-macros for type inference
 ;; Result is a function return type
