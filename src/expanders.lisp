@@ -79,7 +79,7 @@ no clause succeeds NIL is returned."
           (make-traverse-bounded element form start end body))
 
          ((> start 0)
-          (make-traverse-list element `(nthcdr ,start form) body))
+          (make-traverse-list element `(nthcdr ,start ,form) body))
 
          (t
           (make-traverse-list element form body))))
