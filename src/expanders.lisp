@@ -6,25 +6,6 @@
 
 ;;; Utilities
 
-(defmacro oif (cond if-true &optional if-false &environment env)
-  "Optimized IF expression.
-
-If the condition form is a constant the IF expression is replaced with
-the appropriate branch.
-
-COND is the IF expression condition form.
-
-IF-TRUE is the form to return if COND evaluates to true.
-
-IF-FALSE is the form to return if COND evaluates to false."
-
-  (multiple-value-bind (cond const?)
-      (constant-form-value cond env)
-
-    (if const?
-        (if cond if-true if-false)
-        `(if ,cond ,if-true ,if-false))))
-
 (defmacro with-constant-values ((&rest things) env &body clauses)
   "Check whether one or more forms are constant and retrieve their values.
 
@@ -185,15 +166,15 @@ no clause succeeds NIL is returned."
            (,end-index (if ,v-end ,v-end (cl:length ,vec)) :constant t)
 
            (,index
-            (oif ,v-from-end (cl:1- ,end-index) ,v-start)))
+            (if ,v-from-end (cl:1- ,end-index) ,v-start)))
 
-         `(when (oif ,v-from-end
+         `(when (if ,v-from-end
                      (cl:>= ,index ,start)
                      (cl:< ,index ,end-index))
 
             (let ((,element (aref ,vec ,index)))
               (declare (type ,elt ,element))
-              (oif ,v-from-end
+              (if ,v-from-end
                    (cl:decf ,index)
                    (cl:incf ,index))
               ,body))
