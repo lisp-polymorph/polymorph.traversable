@@ -228,9 +228,6 @@
     (multiple-value-bind (more? first-key first-value)
         (next)
 
-      (if (and more? (not initp))
-        (setf initial-value (cons first-key first-value)))
-
       (cond
         ((not more?)
          (if initp
@@ -238,8 +235,9 @@
              (funcall function)))
 
         ((or (eq key #'car) (eq key #'first))
-         (when initp
-           (setf initial-value (funcall function initial-value first-key)))
+         (if initp
+             (setf initial-value (funcall function initial-value first-key))
+             (setf initial-value first-key))
 
          (loop :for (more? k) = (multiple-value-list (next))
                :while more?
@@ -247,8 +245,9 @@
                :finally (return initial-value)))
 
         ((or (eq key #'cdr) (eq key #'rest))
-         (when initp
-           (setf initial-value (funcall function initial-value first-value)))
+         (if initp
+             (setf initial-value (funcall function initial-value first-value))
+             (setf initial-value first-value))
 
          (loop :for (more? nil v) = (multiple-value-list (next))
                :while more?
@@ -256,8 +255,9 @@
                :finally (return initial-value)))
 
         (t
-         (when initp
-           (setf initial-value (funcall function initial-value (cons first-key first-value))))
+         (if initp
+             (setf initial-value (funcall function initial-value (cons first-key first-value)))
+             (setf initial-value (funcall key (cons first-key first-value))))
 
          (loop :for (more? k v) = (multiple-value-list (next))
                :while more?
