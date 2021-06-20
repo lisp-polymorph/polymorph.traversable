@@ -220,25 +220,51 @@
 
 (defpolymorph (reduce :inline t) ((function function) (container hash-table) &key ((from-end null) nil)
                                   ((start (eql 0)) 0) ((end null) nil)
-                                  ((key function) #'identity) ((initial-value t) nil))
+                                  ((key function) #'identity) ((initial-value t) nil initp))
     (values t &optional)
-    (declare (ignorable from-end start end))
-    (cond
-      ((or (eq key #'car) (eq key #'first))
-       (loop :for k :being :the :hash-key :in container
-             :do (setf initial-value (funcall function initial-value k))
-             :finally (return initial-value)))
-      ((or (eq key #'cdr) (eq key #'rest))
-       (loop :for v :being :the :hash-value :in container
-             :do (setf initial-value (funcall function initial-value v))
-             :finally (return initial-value)))
-      (t
-       (loop :for k :being :the :hash-keys :in container
-               :using (hash-value v)
-             :do (setf initial-value
-                       (funcall function initial-value
-                                (funcall key (cons k v))))
-             :finally (return initial-value)))))
+  (declare (ignorable from-end start end))
+
+  (with-hash-table-iterator (next container)
+    (multiple-value-bind (more? first-key first-value)
+        (next)
+
+      (if (and more? (not initp))
+        (setf initial-value (cons first-key first-value)))
+
+      (cond
+        ((not more?)
+         (if initp
+             initial-value
+             (funcall function)))
+
+        ((or (eq key #'car) (eq key #'first))
+         (when initp
+           (setf initial-value (funcall function initial-value first-key)))
+
+         (loop :for (more? k) = (multiple-value-list (next))
+               :while more?
+               :do (setf initial-value (funcall function initial-value k))
+               :finally (return initial-value)))
+
+        ((or (eq key #'cdr) (eq key #'rest))
+         (when initp
+           (setf initial-value (funcall function initial-value first-value)))
+
+         (loop :for (more? nil v) = (multiple-value-list (next))
+               :while more?
+               :do (setf initial-value (funcall function initial-value v))
+               :finally (return initial-value)))
+
+        (t
+         (when initp
+           (setf initial-value (funcall function initial-value (cons first-key first-value))))
+
+         (loop :for (more? k v) = (multiple-value-list (next))
+               :while more?
+               :do (setf initial-value
+                         (funcall function initial-value
+                                  (funcall key (cons k v))))
+               :finally (return initial-value)))))))
 
 
 ;;(define-polymorphic-function map (result-type function container &rest containers) :overwrite t)
