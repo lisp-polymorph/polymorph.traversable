@@ -169,7 +169,7 @@ no clause succeeds NIL is returned."
             (if ,v-from-end (cl:1- ,end-index) ,v-start)))
 
          `(when (if ,v-from-end
-                     (cl:>= ,index ,start)
+                     (cl:>= ,index ,v-start)
                      (cl:< ,index ,end-index))
 
             (let ((,element (aref ,vec ,index)))
