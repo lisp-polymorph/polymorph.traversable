@@ -193,29 +193,27 @@
                                   ((key function) #'identity) ((initial-value t) nil initp))
     (values t &optional)
 
-  (cond
-    (initp
-     (progn
-       (traverse ((cand container :start start
-                                  :end end
-                                  :from-end from-end))
-         (setf initial-value
-               (funcall function initial-value
-                        (funcall key cand))))
-       initial-value))
+  (let ((result nil)
+        (resultp nil))
 
-    ((emptyp container)
-     (funcall function))
+    (with-iterators ((it container :from-end from-end :start start :end end))
+      (setf result
+            (if initp
+                initial-value
+                (funcall key (with-iter-value (value it) value))))
 
-    (t
-     (let ((initial-value (funcall key (at container start))))
-       (traverse ((cand container :start (+ 1 start)
-                                  :end end
-                                  :from-end from-end))
-         (setf initial-value
-               (funcall function initial-value
-                        (funcall key cand))))
-       initial-value))))
+      (setf resultp t)
+
+      (if from-end
+          (do-iter-values ((item it))
+            (setf result (funcall function (funcall key item) result)))
+
+          (do-iter-values ((item it))
+            (setf result (funcall function result (funcall key item))))))
+
+    (if resultp
+        result
+        (funcall function))))
 
 ;; TODO compiler-macros for type inference
 ;; Result is a function return type
