@@ -63,127 +63,280 @@ no clause succeeds NIL is returned."
        :initial-value
        `(cond ,@(mapcar #'make-clause clauses))))))
 
-
-;;; Lists
+(defmacro with-destructure-pattern ((var pattern) (body-var body) &body forms)
+  "Automatically generate destructuring code if the binding pattern is
+a destructuring-bind pattern.
 
-(define-traverse-expander list (type form args body env)
-  (destructuring-bind (&key from-end (start 0) end) args
-    (with-constant-values (from-end start end) env
-      ((from-end start end)
-       (cond
-         (from-end
-          (make-traverse-list
-           `(cl:nreverse (cl:subseq ,form ,start ,end))
-           body))
+The WITH-ITER-VALUE binding pattern, PATTERN, is checked whether it is
+a symbol naming a variable or a list representing a DESTRUCTURING-BIND
+pattern.
 
-         (end
-          (make-traverse-bounded-list form start end body))
+If PATTERN is a list, a variable name is generated, and bound to the
+variable VAR. BODY-VAR is bound to forms which destructure the value
+stored in the variable, wrapping the forms in BODY.
 
-         ((> start 0)
-          (make-traverse-list `(nthcdr ,start ,form) body))
+If PATTERN is a symbol, the variable given by VAR is bound directly to
+that symbol and the variable given by BODY-VAR is bound directly to
+BODY.
 
-         (t
-          (make-traverse-list form body))))
+The body forms of the macro FORMS are evaluated in an implicit PROGN,
+with the bindings to the variables given by VAR and BODY-VAR
+visible. The return value of the last form is returned.
 
-      ((start end)
-       (cond
-         (end
-          (make-traverse-list
-           `(if ,from-end
-                (cl:nreverse (cl:subseq ,form ,start ,end))
-                (cl:subseq ,form ,start ,end))
-           body))
+FORMS should generate code which binds the current sequence element to
+   the variable with name stored in VAR."
 
-         ((> start 0)
-          (make-traverse-list
-           `(if ,from-end
-                (cl:reverse (nthcdr ,start ,form))
-                (nthcdr ,start ,form))
-           body))
+  `(make-destructure-pattern
+    ,pattern ,body
+    (lambda (,var ,body-var)
+      ,@forms)))
 
-         (t
-          (make-traverse-list
-           `(if ,from-end
-                (cl:reverse ,form)
-                ,form)
-           body))))
-
-      (nil
-       (make-traverse-list
-        `(if ,from-end
-             (cl:nreverse (cl:subseq ,form ,start ,end))
-             (cl:subseq ,form ,start ,end))
-        body)))))
-
-(defun make-traverse-bounded-list (form start end body)
-  "Generate a TRAVERSE expansion for a bounded list traversal, when END is non-NIL."
-
-  (multiple-value-bind (bindings body bind-value)
-      (make-traverse-list
-       `(nthcdr ,start ,form)
-       body)
-
-    (with-gensyms (index)
-      (values
-       `((,index ,start) ,@bindings)
-
-       body
-
-       `(lambda (pattern body)
-          (,bind-value
-           pattern
-
-           `((unless (< ,',index ,',end)
-               (traverse-finish))
-
-
-             (incf ,',index)
-             ,@body)))))))
-
-(defun make-traverse-list (form body)
-  "Generate a TRAVERSE expansion for a unbounded list traversal."
-
-  (with-gensyms (list)
-    (values
-     `((,list ,form))
-
-     body
-
-     `(lambda (pattern body)
-        (bind-list-element pattern body ',list)))))
-
-(defun bind-list-element (pattern body list)
-  "Generate a form which binds the next element of a list.
-
-PATTERN is the binding pattern.
-
-BODY is the list of forms to be evaluated, within the environment of
-the binding.
-
-LIST is the name of the variable storing the list."
-
+(defun make-destructure-pattern (pattern body fn)
   (etypecase pattern
     (list
      (with-gensyms (var)
-       (bind-list-element
-        var
+       (funcall
+        fn var
         `((destructuring-bind ,pattern ,var
-            ,@body))
-        list)))
+            ,@body)))))
 
     (symbol
-     `(progn
-        (unless ,list
-          (traverse-finish))
+     (funcall fn pattern body))))
 
-        (let ((,pattern (car ,list)))
-          (setf ,list (cdr ,list))
-          ,@body)))))
+(defmacro iter-macro ((&rest vars) (&rest lambda-list) &body body)
+  "Generate a lexical macro definition for WITH-ITER-VALUE/PLACE for an iterator.
+
+This macro is intended to be used within a traverse expansion function
+to facilitate the definition, by avoiding the need for nested
+backquotes, of the lexical macros, serving as the expansion of
+WITH-ITER-VALUE and WITH-ITER-PLACE for a given iterator type.
+
+VARS is a list of variables to 'capture' from the lexical scope of the
+ITER-MACRO form. Inside the generated macro definition, a symbol-macro
+is introduced for each variable, by SYMBOL-MACROLET, which expands to
+a QUOTE form which returns the value of the variable as it is in the
+environment where the ITER-MACRO form occurs.
+
+LAMBDA-LIST is the macro lambda-list (not evaluated).
+
+BODY is the list of body forms of the generated macro. These are not
+evaluated at the time the ITER-MACRO form is evaluated but are instead
+quoted and become the body forms of the generated macro
+definition. The body forms may reference the variables in the
+LAMBDA-LIST and the values of the 'captured' variables listed in VARS.
+
+Returns a lexical macro definition (excluding the name) suitable to be
+returned from a traverse expander function as the macro definition for
+the iterator's WITH-ITER-VALUE and WITH-ITER-PLACE."
+
+  ``(,',lambda-list
+     (symbol-macrolet
+         ,(list ,@(loop for var in vars
+                     collect ``(,',var ',,var)))
+
+       ,@',body)))
+
+(defmacro with-destructure-entry ((key value pattern) (body-var body) &body forms)
+  "Like WITH-DESTRUCTURE-PATTERN, except that FORMS should generate
+   code which binds the current entry key to KEY and the value to
+   VALUE."
+
+  `(make-destructure-entry
+    ,pattern ,body
+    (lambda (,key ,value ,body-var)
+      ,@forms)))
+
+(defun make-destructure-entry (pattern body fn)
+  (etypecase pattern
+    (cons
+     (if (and (symbolp (car pattern))
+              (cdr pattern)
+              (symbolp (cdr pattern)))
+
+         (let ((key (or (car pattern) (gensym "KEY")))
+               (value (or (cdr pattern) (gensym "VALUE"))))
+
+           (funcall fn key value body))
+
+         (with-gensyms (key value)
+           (funcall
+            fn key value
+            `((destructuring-bind ,pattern (cons ,key ,value)
+                ,@body))))))
+
+    (symbol
+     (with-gensyms (key value)
+       (funcall
+        fn key value
+        `((let ((,pattern (cons ,key ,value)))
+            ,@body)))))))
+
+(defmacro map-place (key table)
+  (once-only (key)
+    `(cons ,key (gethash ,key ,table))))
+
+(defsetf map-place (key table) (new-value)
+  `(setf (gethash ,key ,table) ,new-value))
+
+
+;;; Lists
+
+(define-traverse-expander list (type form args tag body env)
+  (destructuring-bind (&key from-end (start 0) end) args
+    (with-gensyms (list index v-start v-end v-from-end with-value with-place place)
+      (values
+       `((,v-start ,start :constant t)
+         (,v-end ,end :constant t)
+         (,v-from-end ,from-end :constant t)
+
+         (,list
+          (if ,v-from-end
+              (sublist ,form ,v-start ,v-end ,v-from-end)
+              (nthcdr ,v-start ,form))))
+
+       (let ((value-macro
+              (iter-macro (tag list place)
+                  (pattern &body body)
+
+                (with-destructure-pattern (var pattern)
+                    (body body)
+
+                  `(progn
+                     (unless ,list
+                       (go ,tag))
+
+                     (let ((,var (,place ,list)))
+                       (setf ,list (cdr ,list))
+
+                       ,@body)))))
+
+             (place-macro
+              (iter-macro (tag list place)
+                  (name more? &body body)
+
+                (let ((body
+                       `(prog1 (progn ,@body)
+                          (setf ,list (cdr ,list)))))
+
+                  `(symbol-macrolet ((,name (,place ,list)))
+                     ,(if more?
+                          `(let ((,more? ,list))
+                             ,body)
+
+                          `(progn
+                             (unless ,list
+                               (go ,tag))
+
+                             ,body)))))))
+
+         (with-gensyms (list-value list-place)
+           `((cond
+               (,v-from-end
+                (macrolet ((,with-value . ,value-macro)
+                           (,with-place . ,place-macro)
+                           (,place (thing)
+                             `(caar ,thing)))
+
+                  ,@body))
+
+               (,v-end
+                (let ((,index ,v-start))
+                  (macrolet ((,list-value . ,value-macro)
+                             (,list-place . ,place-macro)
+                             (,place (thing)
+                               `(car ,thing))
+
+                             (,with-value .
+                               ,(iter-macro (tag index v-end list-value)
+                                    (pattern &body body)
+
+                                  `(,list-value
+                                    ,pattern
+
+                                    (unless (< ,index ,v-end)
+                                      (go ,tag))
+
+                                    (incf ,index)
+                                    ,@body)))
+
+                             (,with-place .
+                               ,(iter-macro (tag index v-end list-place)
+                                    (name more? &body body)
+
+                                  `(,list-place
+                                    ,name
+                                    ,more?
+
+                                    ,@(if more?
+                                          `((let ((,more? (and ,more? (< ,index ,v-end))))
+                                              (incf ,index)
+                                              ,@body))
+
+                                          `((unless (< ,index ,v-end)
+                                              (go ,tag))
+
+                                            (incf ,index)
+                                            ,@body))))))
+                    ,@body)))
+
+               (t
+                (macrolet ((,with-value . ,value-macro)
+                           (,with-place . ,place-macro)
+                           (,place (thing)
+                             `(car ,thing)))
+
+                  ,@body))))))
+
+
+       (iter-macro (with-value)
+           (pattern &body body)
+         `(,with-value ,pattern ,@body))
+
+       (iter-macro (with-place)
+           (name more? &body body)
+
+         `(,with-place ,name ,more? ,@body))))))
+
+(defun sublist (list start end from-end)
+  "Return the list of CONS cells making up a subsequence of a list.
+
+LIST is the list.
+
+START is the index of the first element of the subsequence.
+
+END is the index 1 past the last element of the subsequence. If NIL
+the subsequence extends till the end of the list.
+
+If FROM-END is true the cells are collected starting from the last
+element of the subsequence, otherwise they are collected starting from
+the first element of the subsequence.
+
+The return value is a list of CONS cells of the original list,
+corresponding to the cells containing the elements of the
+subsequence. This allows modifying the original list by modifying the
+cons cells."
+
+  (if from-end
+      (let (cells)
+        (loop
+           for cell on (nthcdr start list)
+           for i from start
+           while (or (null end) (< i end))
+           do
+             (push cell cells))
+
+        cells)
+
+      (loop
+         for cell on (nthcdr start list)
+         for i from start
+         while (or (null end) (< i end))
+         collect cell)))
 
 
 ;;; Vectors
 
-(define-traverse-expander vector (type form args body env)
+(define-traverse-expander vector (type form args tag body env)
   (destructuring-bind (&key from-end (start 0) end) args
     (with-type-info (type (typename &optional (elt t)) env) form
       (with-gensyms (vec index end-index v-from-end v-start v-end)
@@ -200,202 +353,150 @@ LIST is the name of the variable storing the list."
 
          body
 
-         `(lambda (pattern body)
-            (bind-vector-element pattern body ',vec ',elt ',index ',v-start ',end-index ',v-from-end)))))))
+         (iter-macro (tag elt v-from-end v-start vec end-index index)
+             (pattern &body body)
 
-(defun bind-vector-element (pattern body vec elt-type index start end from-end)
-  "Generate a form which binds the next element of a vector.
+           (with-destructure-pattern (var pattern)
+               (body body)
 
-PATTERN is the binding pattern.
+             `(progn
+                (unless (if ,v-from-end
+                            (>= ,index ,v-start)
+                            (< ,index ,end-index))
+                  (go ,tag))
 
-BODY is the list of forms to be evaluated, within the environment of
-the binding.
+                (let ((,var (aref ,vec ,index)))
+                  (declare (type ,elt ,var))
+                  (if ,v-from-end
+                      (decf ,index)
+                      (incf ,index))
+                  ,@body))))
 
-VEC is the name of the variable storing the vector.
+         (iter-macro (tag v-from-end v-start vec end-index index)
+             (name more? &body body)
 
-ELT-TYPE is the vector's element type.
+           (let ((test `(if ,v-from-end
+                            (>= ,index ,v-start)
+                            (< ,index ,end-index)))
+                 (body `(prog1 (progn ,@body)
+                          (if ,v-from-end
+                              (decf ,index)
+                              (incf ,index)))))
 
-INDEX is the name of the variable/symbol-macro storing the element
-index.
+             `(symbol-macrolet ((,name (aref ,vec ,index)))
+                ,(if more?
+                     `(let ((,more? ,test))
+                        ,body)
 
-START is the name of the variable/symbol-macro storing the starting
-index.
+                     `(progn
+                        (unless ,test
+                          (go ,tag))
 
-END is the name of the variable/symbol-macro storing the ending index.
-
-FROM-END is the name of the variable/symbol-macro storing the FROM-END
-flag."
-
-  (etypecase pattern
-    (list
-     (with-gensyms (var)
-       (bind-vector-element
-        var
-        `((destructuring-bind ,pattern ,var
-            ,@body))
-
-        vec
-        elt-type
-        index
-        start
-        end
-        from-end)))
-
-    (symbol
-     `(progn
-        (unless (if ,from-end
-                    (cl:>= ,index ,start)
-                    (cl:< ,index ,end))
-          (traverse-finish))
-
-        (let ((,pattern (aref ,vec ,index)))
-          (declare (type ,elt-type ,pattern))
-          (if ,from-end
-              (cl:decf ,index)
-              (cl:incf ,index))
-          ,@body)))))
+                        ,body))))))))))
 
 
 ;;; Hash-Tables
 
-(define-traverse-expander hash-table (type form args body env)
+(define-traverse-expander hash-table (type form args tag body env)
   (destructuring-bind (&key from-end (start 0) end) args
     (declare (ignore from-end))
 
     (with-gensyms (table next more? size index)
-      (with-constant-values (start end) env
-        ((start end)
-         (let* ((counted? (or (> start 0) end))
+      (flet ((make-iter-value (test inc)
+               (iter-macro (more? next test tag inc)
+                   (pattern &body body)
 
-                (test (if counted?
-                          `(and ,more? (cl:< ,index ,size))
-                          more?))
+                 (with-destructure-entry (key value pattern)
+                     (body body)
 
-                (inc (when counted?
-                       `((cl:incf ,index)))))
+                   `(multiple-value-bind (,more? ,key ,value)
+                        (,next)
+                      (declare (ignorable ,key ,value))
 
+                      (unless ,test
+                        (go ,tag))
+
+                      ,@inc
+                      ,@body))))
+
+             (make-iter-place (test inc)
+               (iter-macro (more? next test tag inc table)
+                   (name more?-var &body body)
+
+                 (let ((more? (or more?-var more?)))
+                   (with-gensyms (key)
+                     `(multiple-value-bind (,more? ,key)
+                          (,next)
+
+                        (symbol-macrolet ((,name (map-place ,key ,table)))
+                          ,(if more?-var
+                               body
+
+                               `(progn
+                                  (unless ,test
+                                    (go ,tag))
+
+                                  ,@inc
+                                  ,@body)))))))))
+
+        (with-constant-values (start end) env
+          ((start end)
+           (let* ((counted? (or (> start 0) end))
+
+                  (test (if counted?
+                            `(and ,more? (cl:< ,index ,size))
+                            more?))
+
+                  (inc (when counted?
+                         `((cl:incf ,index)))))
+
+             (values
+              `((,table ,form)
+                ,@(when counted?
+                    `((,index ,start)
+                      (,size ,(or end `(hash-table-count ,table))))))
+
+              `((with-hash-table-iterator (,next ,table)
+                  ,@body))
+
+              (make-iter-value test inc)
+              (make-iter-place test inc))))
+
+          (nil
            (values
             `((,table ,form)
-              ,@(when counted?
-                  `((,index ,start)
-                    (,size ,(or end `(hash-table-count ,table))))))
+              (,index ,start)
+              (,size (or ,end (hash-table-count ,table))))
 
             `((with-hash-table-iterator (,next ,table)
                 ,@body))
 
-            `(lambda (pattern body)
-               (bind-hash-table-element pattern body ',next ',more? ',test ',inc)))))
+            (make-iter-value `(and ,more? (cl:< ,index ,size))
+                             `((cl:incf ,index)))
 
-        (nil
-         (values
-          `((,table ,form)
-            (,index ,start)
-            (,size (or ,end (hash-table-count ,table))))
-
-          `((with-hash-table-iterator (,next ,table)
-              ,@body))
-
-          `(lambda (pattern body)
-             (bind-hash-table-element
-              pattern body
-              ',next ',more?
-              '(and ,more? (cl:< ,index ,size))
-              '((cl:incf ,index))))))))))
-
-(defun bind-hash-table-element (pattern body next more? test inc)
-  "Generate a form which binds the next element of a hash-table.
-
-PATTERN is the binding pattern.
-
-BODY is the list of forms to be evaluated, within the environment of
-the binding.
-
-NEXT is the hash-table iterator next element macro.
-
-MORE? is the name of the variable to which the more elements flag
-should be bound.
-
-TEST is the loop termination test form.
-
-INC is the list of index incrementation forms."
-
-  (etypecase pattern
-    (cons
-     (if (and (symbolp (car pattern))
-              (cdr pattern)
-              (symbolp (cdr pattern)))
-
-         (let ((key (or (car pattern) (gensym "KEY")))
-               (value (or (cdr pattern) (gensym "VALUE"))))
-
-           `(multiple-value-bind (,more? ,key ,value)
-                (,next)
-
-              (unless ,test
-                (traverse-finish))
-
-              ,@body))
-
-         (with-gensyms (key value)
-           (bind-hash-table-element
-            (cons key value)
-
-            `((destructuring-bind ,pattern (cons ,key ,value)
-                ,@body))
-
-            next more? test inc))))
-
-    (symbol
-     (with-gensyms (key value)
-       (bind-hash-table-element
-        (cons key value)
-
-        `((let ((,pattern (cons ,key ,value)))
-            ,@body))
-
-        next more? test inc)))))
+            (make-iter-place `(and ,more? (cl:< ,index ,size))
+                             `((cl:incf ,index))))))))))
 
 
 ;;; Default
 
-(define-traverse-expander t (type form args body env)
-  (declare (ignore env))
-
-  (with-gensyms (it)
+(define-traverse-expander t (type form args tag body)
+  (with-gensyms (it more?)
     (values
      `((,it (make-iterator ,form ,@args)))
 
      body
 
-     `(lambda (pattern body)
-        (bind-iter-element pattern body ',it)))))
+     (iter-macro (it more? tag)
+         (pattern &body body)
 
-(defun bind-iter-element (pattern body iter)
-  "Generate a form which binds the next element of a generic sequence.
+       (with-destructure-pattern (var pattern)
+           (body body)
 
-PATTERN is the binding pattern.
+         `(multiple-value-bind (,more? ,var)
+              (funcall ,it)
 
-BODY is the list of forms to be evaluated, within the environment of
-the binding.
+            (unless ,more?
+              (go ,tag))
 
-ITER is the variable storing the iterator object."
-
-  (etypecase pattern
-    (list
-     (with-gensyms (var)
-       (bind-iter-element
-        var
-        `((destructuring-bind ,pattern ,var
-            ,@body))
-
-        iter)))
-
-    (symbol
-     (with-gensyms (more?)
-       `(multiple-value-bind (,more? ,pattern)
-            (funcall ,iter)
-
-          (unless ,more?
-            (traverse-finish))
-
-          ,@body)))))
+            ,@body))))))

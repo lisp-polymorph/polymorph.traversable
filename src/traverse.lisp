@@ -12,7 +12,7 @@
 Each key denotes a container type with the corresponding value storing
 the traversal expander function for that container type.")
 
-(defmacro define-traverse-expander (type (type-var container args body &optional (env (gensym "ENV"))) &body forms)
+(defmacro define-traverse-expander (type (type-var container args tag body &optional (env (gensym "ENV"))) &body forms)
   "Define a WITH-ITERATORS expansion for a given container type.
 
 TYPE is the container type for which this expansion is defined. It
@@ -24,6 +24,10 @@ CONTAINER is the container form.
 
 ARGS is the variable receiving the list of arguments passed after the
 container form.
+
+TAG is the variable receiving the name of the tag (in TAGBODY) to
+which a non-local jump should be performed, by GO, when the end of the
+container is reached.
 
 BODY is the variable receiving the list of forms comprising the body
 of the WITH-ITERATORS form.
@@ -56,29 +60,75 @@ expansion function:
 
  2. The new body of the WITH-ITERATORS form.
 
- 3. A LAMBDA form of two arguments, representing the function to call
-    when expanding WITH-ITER-VALUE for the sequence iterator.
+ 3. A lexical macro definition defining the expansion of
+    WITH-ITER-VALUE for the sequence's iterator.
 
-    The first argument is the element binding pattern, to which
-    elements of the sequence are bound. This may either be a list
-    interpreted as a pattern to `destructuring-bind`.
+    This should be a list of the form:
 
-    The second element is the list of forms comprising the body of the
-    `WITH-ITER-VALUE` form.
+       (LAMBDA-LIST . BODY)
 
-    This function should return a form which binds the current
-    sequence element to the variable(s) specified in the binding
-    pattern, advances the position of the iterator to the next element
-    in the sequence, and evaluates the body forms, with the element
-    bindings visible to them.
+    where LAMBDA-LIST is the macro lambda-list and BODY is the macro
+    definition body. A name should not be provided as a name for the
+    macro is generated.
 
-    The form returned, should use the lexical TRAVERSE-FINISH macro to
-    jump out of the WITH-ITERATORS form, if there are no more elements
-    in the sequence."
+    The lambda-list should have the following arguments:
+
+       (PATTERN &BODY BODY)
+
+    where PATTERN is the binding pattern, corresponding to the PATTERN
+    argument of WITH-ITER-VALUE, describing which variable(s) to bind
+    to the value of current sequence element.
+
+    This may either be a symbol, naming a variable or a list which
+    should be interpreted as a destructuring-bind pattern.
+
+    BODY is the list of body forms of the WITH-ITER-VALUE form,
+    corresponding to the BODY argument.
+
+    The macro should expand to a form which binds the current sequence
+    element to the variable(s) specified in PATTERN, advances the
+    position of the iterator to the next element in the sequence, and
+    evaluates the body forms.
+
+    The expansion should jump out of the WITH-ITERATORS form, using a
+    GO to the tag name given in the TAG argument.
+
+ 4. A lexical macro definition defining the expansion of
+    WITH-ITER-PLACE for the sequence's iterator.
+
+    This should be a list of the form:
+
+       (LAMBDA-LIST . BODY)
+
+    where LAMBDA-LIST is the macro lambda-list and BODY is the macro
+    definition body. A name should not be provided as a name for the
+    macro is generated.
+
+    The lambda-list should have the following arguments:
+
+       (NAME MOREP &BODY FORMS)
+
+    where NAME is the name of the symbol-macro to be introduced,
+    expanding to the 'place' of the current sequence element,
+    corresponding to the NAME argument of WITH-ITER-PLACE.
+
+    MOREP corresponds to the MOREP argument of WITH-ITER-PLACE which
+    is the name of the variable which should be bound to true if there
+    are more elements in the sequence and bound to NIL if there are no
+    more elements. If MOREP is NIL, the expansion should jump out of
+    the WITH-ITERATORS form, skipping the evaluation of FORMS, using a
+    GO to the tag name given in the TAG argument.
+
+    FORMS are the body forms of the WITH-ITER-PLACE form,
+    corresponding to the FORMS argument of WITH-ITER-PLACE.
+
+    If this return value is NIL it is assumed the sequence is
+    immutable, and any uses of WITH-ITER-PLACE on it will result in an
+    error being signalled."
 
   `(eval-when (:compile-toplevel :load-toplevel :execute)
      (setf (gethash ',type *traverse-expanders*)
-           (lambda (,type-var ,container ,args ,body ,env)
+           (lambda (,type-var ,container ,args ,tag ,body ,env)
              (declare (ignorable ,type-var ,env))
              ,@forms))))
 
@@ -109,6 +159,35 @@ container type or a non-function value is stored in
 
     (check-type expander function)
     expander))
+
+
+;;;; Local WITH-ITER-VALUE and WITH-ITER-PLACE expansions
+
+(defun iter-value-macros (env)
+  "Retrieve the association list mapping iterator identifiers to the
+names of the macros serving as the expansion of WITH-ITER-VALUE when
+given those iterator identifiers. This information is retrieved from
+the environmnet ENV by macroexpanding the symbol-macro
+ITER-VALUE-MACROS."
+
+  (multiple-value-bind (macros expanded?)
+      (macroexpand 'iter-value-macros env)
+
+    (when expanded?
+      macros)))
+
+(defun iter-value-places (env)
+  "Retrieve the association list mapping iterator identifiers to the
+names of the macros serving as the expansion of WITH-ITER-PLACE when
+given those iterator identifiers. This information is retrieved from
+the environmnet ENV by macroexpanding the symbol-macro
+ITER-VALUE-PLACES."
+
+  (multiple-value-bind (macros expanded?)
+      (macroexpand 'iter-value-places env)
+
+    (when expanded?
+      macros)))
 
 
 ;;; WITH-ITERATORS Macro
@@ -144,8 +223,9 @@ FORMS:
   current element of the sequence and advance the iterator to the next
   position.
 
-  The TRAVERSE-FINISH macro can be used to jump out of the
-  WITH-ITERATORS form.
+  The WITH-ITER-PLACE macro can be used, within FORMS, both to
+  retrieve and set the value of the current element of the sequence,
+  and advance the iterator to the next position.
 
   NOTE: The value of the last form is not returned, due to it being
   evaluated in a TAGBODY, instead NIL is returned. RETURN-FROM, to an
@@ -164,31 +244,29 @@ TAGBODY facility."
                            type
                            container
                            args
+                           end-tag
                            body
                            env))))
 
-             (make-form (bindings get-values body)
-               (make-bindings bindings (make-macros get-values body)))
+             (make-form (bindings get-values places body)
+               (make-bindings bindings (make-macros get-values places body)))
 
-             (make-macros (get-values body)
-               (with-gensyms (pattern iter forms)
-                 `(macrolet
-                      ((with-iter-value ((,pattern ,iter) &body ,forms)
-                         (case ,iter
-                           ,@(loop for (it fn) in get-values
-                                collect `(,it (,fn ,pattern ,forms)))
-                           (otherwise
-                            (error "In WITH-ITER-VALUE: ~s not one of ~s passed to WITH-ITERATORS."
-                                   ,iter ',(mapcar #'car get-values))))))
-                    ,@body)))
+             (make-macros (get-values places body)
+               `(symbol-macrolet
+                    ((iter-value-macros
+                      ,(append get-values (iter-value-macros env)))
+
+                     (iter-value-places
+                      ,(append places (iter-value-places env))))
+
+                  ,@body))
 
              ;; Tagbody
 
              (make-tagbody (body)
-               `((macrolet ((traverse-finish () `(go ,',end-tag)))
-                   (tagbody
-                      ,@body
-                      ,end-tag))))
+               `((tagbody
+                    ,@body
+                    ,end-tag)))
 
 
              ;; Bindings
@@ -220,19 +298,29 @@ TAGBODY facility."
 
       (loop
          for (var container . args) in containers
-         for (bindings body get-value) =
+         for (bindings body value place) =
            (expand-traverse container args (make-tagbody forms) env) then
            (expand-traverse container args form-body env)
 
-         for form-body = body
+         for iter-value = (gensym "ITER-VALUE")
+         for iter-place = (gensym "ITER-PLACE")
+         for form-body = `((macrolet ((,iter-value ,@value)
+                                      (,iter-place
+                                          ,@(or place
+                                                `((&rest args)
+                                                  (declare (ignore args))
+                                                  (error "In WITH-ITER-PLACE: Iterator ~s points to immutable sequence." ',var)))))
+                             ,@body))
+
          append bindings into all-bindings
-         collect (list var get-value) into get-values
+         collect (cons var iter-value) into get-values
+         collect (cons var iter-place) into places
 
          finally
            (return
-             (make-form all-bindings get-values form-body))))))
+             (make-form all-bindings get-values places form-body))))))
 
-(defmacro with-iter-value ((pattern iter) &body forms)
+(defmacro with-iter-value ((pattern iter) &body forms &environment env)
   "Bind the current element of a container pointed to by a static iterator, to a variable.
 
 This macro may only be used within the body of a WITH-ITERATORS macro.
@@ -241,8 +329,8 @@ The current element of the container, with iterator ITER, is bound to
 the variable(s) specified by PATTERN, with the bindings visible to
 FORMS.
 
-If the iterator is already at the end of the container, TRAVERSE-FINISH
-is called to jump out of the enclosing WITH-ITERATORS form.
+If the iterator is already at the end of the sequence a non-local
+jump, to the end of the enclosing WITH-ITERATORS form, is performed.
 
 After binding, the iterator is advanced to the next element of the
 sequence.
@@ -260,11 +348,8 @@ ITER:
   Symbol identifying the iterator, as established by the WITH-ITERATOR
   form.
 
-  This must be one an iterator symbol passed in the first argument to
-  the enclosing WITH-ITERATORS macro, otherwise an error is signalled.
-
-  This may not be an iterator from a WITH-ITERATORS form other than
-  the immediate WITH-ITERATORS form in which this form is nested.
+  This must name an iterator introduced in a parent WITH-ITERATORS
+  form.
 
 FORMS:
 
@@ -275,9 +360,78 @@ NOTE: If there are no more elements in the container, the FORMS are
 not evaluated and a non-local jump to the end of the WITH-ITERATORS
 form is performed."
 
-  (declare (ignore pattern iter forms))
+  (let ((bind-macros (iter-value-macros env)))
+    (unless bind-macros
+      (error "Illegal use of WITH-ITER-VALUE outside WITH-ITERATORS."))
 
-  (error "Illegal usage of WITH-ITER-VALUE outside WITH-ITERATORS"))
+    (if-let ((macro (assoc iter bind-macros)))
+      (list* (cdr macro) pattern forms)
+      (error "In WITH-ITER-VALUE: ~s not one of ~{~s~^ or~} passed to WITH-ITERATORS."
+             iter (mapcar #'car bind-macros)))))
+
+(defmacro with-iter-place ((name iter &optional morep) &body forms &environment env)
+  "Introduce an identifier serving as a place to the current sequence element.
+
+This macro may only be used within the body of a WITH-ITERATORS macro.
+
+A symbol-macro, with identifier NAME, is introduced which expands to a
+place, suitable for use with SETF, to the current element of the
+sequence, pointed by the iterator ITER. This symbol-macro is visible
+to the body FORMS of the WITH-ITER-PLACE form.
+
+If the iterator is already at the end of the sequence a non-local
+jump, to the end of the enclosing WITH-ITERATORS form, is performed..
+
+Simultaneously the iterator is also advanced to the next element of
+the sequence. However, the iterator is only guaranteed to be advanced
+on a normal exit from the WITH-ITER-PLACE form. If a non-local jump is
+used, via GO, RETURN-FROM or THROW, the iterator might not be
+advanced.
+
+NAME:
+
+  Identifier of the symbol-macro which is introduced.
+
+  NOTE: Unlike in WITH-ITER-VALUE this must be a symbol, and cannot be
+  a destructuring-bind pattern.
+
+MOREP (Optional)
+
+  The name of the variable which is bound to true if there are more
+  elements in the sequence, and to NIL when there are no more elements
+  in the sequence.
+
+  If NON-NIL it is not checked whether the end of the sequence has
+  been reached, and hence the body FORMS are not skipped. It is up to
+  the programmer to check the value of this variable and perform
+  whatever logic should be performed when the end of the sequence has
+  been reached.
+
+ITER:
+
+  Symbol identifying the iterator, as established by the WITH-ITERATOR
+  form.
+
+  This must name an iterator introduced in a parent WITH-ITERATORS
+  form.
+
+FORMS:
+
+  List of forms evaluated in an implicit PROGN. The binding(s) for the
+  current element are visible to the forms.
+
+  NOTE: If there are no more elements in the sequence, the FORMS are
+  not evaluated and a non-local jump to the end of the WITH-ITERATORS
+  form is performed."
+
+  (let ((place-macros (iter-value-places env)))
+    (unless place-macros
+      (error "Illegal use of WITH-ITER-PLACE outside WITH-ITERATORS."))
+
+    (if-let ((macro (assoc iter place-macros)))
+      (list* (cdr macro) name morep forms)
+      (error "In WITH-ITER-PLACE: ~s not one of ~{~s~^ or~} passed to WITH-ITERATORS."
+             iter (mapcar #'car place-macros)))))
 
 (defmacro do-iter-values ((&rest iters) &body forms)
   "Iterate over the remaining elements of containers pointed to by static iterators.
@@ -305,10 +459,10 @@ FORMS
   corresponding PATTERN. After which the iterators are advanced to the
   next elements.
 
-  If one of the iterators has reached the end of its sequence, a
-  non-local jump to the end of the enclosing WITH-ITERATORS form is
-  performed, i.e. any forms following this form, within the enclosing
-  WITH-ITERATORS form, will not be evaluated."
+If one of the iterators has reached the end of its sequence, a
+non-local jump outside the enclosing WITH-ITERATORS form is performed,
+i.e. any forms following this form, within the enclosing
+WITH-ITERATORS form, will not be evaluated."
 
   (flet ((make-iter-value (iter forms)
            (destructuring-bind (pattern iter) iter
@@ -319,6 +473,23 @@ FORMS
       `(tagbody
           ,start
           ,@(cl:reduce #'make-iter-value iters :initial-value forms :from-end t)
+          (go ,start)))))
+
+(defmacro do-iter-places ((&rest iters) &body forms)
+  "Like DO-ITER-VALUES but instead of binding the value of each
+sequence element, to variables, by WITH-ITER-VALUE, a symbol-macro
+expanding to the 'place' of the current sequence element, is
+introduced, as if by WITH-ITER-PLACE."
+
+  (flet ((make-iter-place (iter forms)
+           (destructuring-bind (var iter) iter
+             `((with-iter-place (,var ,iter)
+                 ,@forms)))))
+
+    (with-gensyms (start)
+      `(tagbody
+          ,start
+          ,@(cl:reduce #'make-iter-place iters :initial-value forms :from-end t)
           (go ,start)))))
 
 
@@ -384,4 +555,57 @@ traverse expander functions defined with DEFINE-TRAVERSE-EXPANDER."
              ,(mapcar #'make-iter-binding iters bindings)
 
            (do-iter-values ,(mapcar #'make-value-binding bindings iters)
+             ,@forms))))))
+
+;;; ITERATE Macro
+
+(defmacro iterate (name/bindings &body forms &environment env)
+  "Mutable version of TRAVERSE.
+
+This is the same as TRAVERSE however each NAME, is the name of a
+symbol-macro, that is introduced, which expands to the 'place',
+suitable for use with SETF, of the current sequence element, rather
+than a variable storing its value. This allows the elements of the
+sequence to be mutated.
+
+NOTE: This macro does not support destructuring of the sequence
+elements."
+
+  (declare (ignore env))
+
+  ;;TODO: Check SAFETY level in ENV, and if 3 expand directly to the
+  ;;slow iterator based implementation?
+
+  (let ((name (if (symbolp name/bindings)
+                  name/bindings
+                  nil))
+
+        (bindings (if (symbolp name/bindings)
+                      (first forms)
+                      name/bindings))
+
+        (forms (if (symbolp name/bindings)
+                   (rest forms)
+                   forms)))
+
+    `(iterate-fast% ,name ,bindings ,@forms)))
+
+(defmacro iterate-fast% (name (&rest bindings) &body forms)
+  "Optimized expansion of ITERATE.
+
+Generates optimized iteration code for the containers types, using the
+traverse expander functions defined with DEFINE-TRAVERSE-EXPANDER."
+
+  (flet ((make-iter-binding (iter container)
+           `(,iter ,@(rest container)))
+
+         (make-value-binding (container iter)
+           `(,(first container) ,iter)))
+
+    (let ((iters (make-gensym-list (length bindings))))
+      `(block ,name
+         (with-iterators
+             ,(mapcar #'make-iter-binding iters bindings)
+
+           (do-iter-places ,(mapcar #'make-value-binding bindings iters)
              ,@forms))))))
