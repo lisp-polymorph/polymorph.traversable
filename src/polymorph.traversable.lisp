@@ -272,5 +272,64 @@
                :finally (return initial-value)))))))
 
 
+;;; FILL
+
+(define-polymorphic-function fill (container value &key start end) :overwrite t)
+
+(defpolymorph (fill :inline t) ((container t) (value t) &key (start 0) end)
+    (values t &optional)
+
+  (iterate ((item container :start start :end end))
+    (setf* item value))
+
+  container)
+
+
+;;; REPLACE
+
+(define-polymorphic-function replace (container1 container2 &key start1 end1 start2 end2) :overwrite t)
+
+(defpolymorph (replace :inline t) ((c1 t) (c2 t) &key (start1 0) end1 (start2 0) end2)
+    (values t &optional)
+
+  (iterate ((item1 c1 :start start1 :end end1)
+            (item2 c2 :start start2 :end end2))
+    (setf* item1 item2))
+
+  c1)
+
+
+;;; MISMATCH
+
+(define-polymorphic-function mismatch (container1 container2 &key from-end test key start1 end1 start2 end2) :overwrite t)
+
+(defpolymorph (mismatch :inline t) ((c1 t) (c2 t) &key from-end (test #'=) key (start1 0) end1 (start2 0) end2)
+    (values t &optional)
+
+  (flet ((compute-pos (pos)
+	   (if from-end
+	       (cl:- (or end1 (size c1)) pos)
+	       (cl:+ start1 pos))))
+    (let ((key (or key #'identity))
+          (pos 0))
+
+      (with-iterators ((it1 c1 :start start1 :end end1 :from-end from-end)
+                       (it2 c2 :start start2 :end end2 :from-end from-end))
+
+        (loop
+           do
+             (with-iter-place (e1 it1 more1?)
+               (with-iter-place (e2 it2 more2?)
+                 (when (not (and more1? more2?))
+                   (return-from mismatch
+                     (when (or more1? more2?)
+                       (compute-pos pos))))
+
+                 (unless (funcall test (funcall key e1) (funcall key e2))
+                   (return-from mismatch (compute-pos pos)))
+
+                 (cl:incf pos))))))))
+
+
 ;;(define-polymorphic-function map (result-type function container &rest containers) :overwrite t)
 ;; TODO this turned out to be way harder then I thought. It needs iterators for runtime implementation

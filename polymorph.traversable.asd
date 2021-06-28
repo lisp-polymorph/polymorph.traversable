@@ -6,7 +6,12 @@
   :license  "Specify license here"
   :version "0.0.1"
   :serial t
-  :depends-on (#:introspect-ctype #:polymorph.maths #:polymorph.access #:polymorph.callable)
+  :depends-on (#:introspect-ctype
+               #:polymorph.macros
+               #:polymorph.maths
+               #:polymorph.access
+               #:polymorph.callable)
+
   :components ((:module
                 "src"
                 :serial t
