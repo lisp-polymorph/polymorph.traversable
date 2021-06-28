@@ -297,42 +297,6 @@ the iterator's WITH-ITER-VALUE and WITH-ITER-PLACE."
 
          `(,with-place ,name ,more? ,@body))))))
 
-(defun sublist (list start end from-end)
-  "Return the list of CONS cells making up a subsequence of a list.
-
-LIST is the list.
-
-START is the index of the first element of the subsequence.
-
-END is the index 1 past the last element of the subsequence. If NIL
-the subsequence extends till the end of the list.
-
-If FROM-END is true the cells are collected starting from the last
-element of the subsequence, otherwise they are collected starting from
-the first element of the subsequence.
-
-The return value is a list of CONS cells of the original list,
-corresponding to the cells containing the elements of the
-subsequence. This allows modifying the original list by modifying the
-cons cells."
-
-  (if from-end
-      (let (cells)
-        (loop
-           for cell on (nthcdr start list)
-           for i from start
-           while (or (null end) (< i end))
-           do
-             (push cell cells))
-
-        cells)
-
-      (loop
-         for cell on (nthcdr start list)
-         for i from start
-         while (or (null end) (< i end))
-         collect cell)))
-
 
 ;;; Vectors
 
@@ -481,22 +445,39 @@ cons cells."
 ;;; Default
 
 (define-traverse-expander t (type form args tag body)
-  (with-gensyms (it more?)
+  (with-gensyms (it)
     (values
      `((,it (make-iterator ,form ,@args)))
 
      body
 
-     (iter-macro (it more? tag)
+     (iter-macro (it tag)
          (pattern &body body)
 
        (with-destructure-pattern (var pattern)
            (body body)
 
-         `(multiple-value-bind (,more? ,var)
-              (funcall ,it)
-
-            (unless ,more?
+         `(progn
+            (unless (morep ,it)
               (go ,tag))
 
-            ,@body))))))
+            (let ((,var (element ,it)))
+              (advance ,it)
+              ,@body))))
+
+     (iter-macro (it tag)
+         (name more? &body body)
+
+       (let ((body `(prog1 (progn ,@body)
+                      (advance ,it))))
+
+         `(symbol-macrolet ((,name (element ,it)))
+            ,(if more?
+                 `(let ((,more? (morep ,it)))
+                    ,body)
+
+                 `(progn
+                    (unless (morep ,it)
+                      (go ,tag))
+
+                    ,body))))))))

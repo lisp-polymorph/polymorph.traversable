@@ -15,7 +15,7 @@
   (:export
    #:traverse
    #:define-traverse-expander
-   #:make-iterator
+   #:make-iterator #:element #:advance #:morep
    #:find #:find-if
    #:position #:position-if
    #:count #:count-if))
