@@ -18,6 +18,7 @@
                 :components
                 ((:file "package")
                  (:file "traverse")
+                 (:file "util")
                  (:file "expanders")
                  (:file "iterators")
                  (:file "polymorph.traversable")))))
