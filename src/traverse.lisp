@@ -320,7 +320,7 @@ TAGBODY facility."
            (return
              (make-form all-bindings get-values places form-body))))))
 
-(defmacro with-iter-value ((pattern iter) &body forms &environment env)
+(defmacro with-iter-value ((pattern iter) &body body)
   "Bind the current element of a container pointed to by a static iterator, to a variable.
 
 This macro may only be used within the body of a WITH-ITERATORS macro.
@@ -351,23 +351,90 @@ ITER:
   This must name an iterator introduced in a parent WITH-ITERATORS
   form.
 
-FORMS:
+BODY:
 
-  List of forms evaluated in an implicit PROGN. The binding(s) for the
-  current element are visible to the forms.
+  The body of the WITH-ITER-VALUE form:
+
+    (DECLARATION* FORM*)
+
+  The body consists of a list of forms evaluated in an implicit PROGN,
+  with the value of the last form returned from the WITH-ITER-VALUE
+  form. The binding(s) introduced by PATTERN are visible to forms.
+
+  The forms may be preceded by one or more declaration expressions,
+  which may apply to the variables introduced in PATTERN.
 
 NOTE: If there are no more elements in the container, the FORMS are
 not evaluated and a non-local jump to the end of the WITH-ITERATORS
 form is performed."
 
+  `(with-iter-values ((,pattern ,iter)) ,@body))
+
+(defmacro with-iter-values ((&rest bindings) &body body &environment env)
+  "Like WITH-ITER-VALUE except multiple sequence elements are bound simultaneously.
+
+BINDINGS:
+
+  A list of element value bindings, corresponding to the first argument
+  of WITH-ITER-VALUE, each of the form (PATTERN ITER).
+
+    ((pattern-1 iter-1) (pattern-2 iter-2) ... (pattern-n iter-n))
+
+  This form is functionally equivalent to a series of nested
+  WITH-ITER-VALUE forms:
+
+    (with-iter-value (pattern-1 iter-1)
+      (with-iter-value (pattern-2 iter-2)
+        (...
+          (with-iter-value (pattern-n iter-n)
+            ,@body))))
+
+  However unlike simply nesting WITH-ITER-VALUE forms, declarations
+  occurring in BODY are handled properly and associated with the
+  correct WITH-ITER-VALUE form, depending on which variable(s) they
+  apply to.
+
+BODY:
+
+  The body of the WITH-ITER-VALUES form:
+
+    (DECLARATION* FORM*)
+
+  The body consists of a list of forms evaluate in an implicit PROGN,
+  with the value of the last form returned from the WITH-ITER-VALUE
+  form. The binding(s) introduced by PATTERN are visible to forms.
+
+  The forms may be preceded by one or more declaration expressions,
+  which may apply to the variables introduced in any of the binding
+  patterns, in BINDINGS.
+
+NOTE: If there are no more elements in at least of the sequences, the
+forms are not evaluated and a non-local jump to the end of the
+enclosing WITH-ITERATORS form is performed."
+
   (let ((bind-macros (iter-value-macros env)))
     (unless bind-macros
       (error "Illegal use of WITH-ITER-VALUE outside WITH-ITERATORS."))
 
-    (if-let ((macro (assoc iter bind-macros)))
-      (list* (cdr macro) pattern forms)
-      (error "In WITH-ITER-VALUE: ~s not one of ~{~s~^ or~} passed to WITH-ITERATORS."
-             iter (mapcar #'car bind-macros)))))
+    (flet ((make-iter-value (binding body)
+             (destructuring-bind (pattern iter) binding
+               (check-type iter symbol)
+
+               (let ((macro (assoc iter bind-macros)))
+                 (unless macro
+                   (error "In WITH-ITER-VALUE: ~s not one of ~{~s~^, ~} passed to WITH-ITERATORS."
+                          iter (mapcar #'car bind-macros)))
+
+                 (macroexpand (list* (cdr macro) pattern body) env)))))
+
+      `(progn
+         ,@(cl:reduce
+            (lambda (binding body)
+              (list (make-iter-value binding body)))
+
+            bindings
+            :from-end t
+            :initial-value body)))))
 
 (defmacro with-iter-place ((name iter &optional morep) &body forms &environment env)
   "Introduce an identifier serving as a place to the current sequence element.

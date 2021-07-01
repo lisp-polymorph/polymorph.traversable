@@ -24,15 +24,16 @@
                   (pattern &body body)
 
                 (with-destructure-pattern (var pattern)
-                    (body body)
+                    (body decl body)
 
                   `(progn
                      (unless ,list
                        (go ,tag))
 
                      (let ((,var (,place ,list)))
-                       (setf ,list (cdr ,list))
+                       ,@decl
 
+                       (setf ,list (cdr ,list))
                        ,@body)))))
 
              (place-macro
@@ -75,14 +76,16 @@
                                ,(iter-macro (tag index v-end list-value)
                                     (pattern &body body)
 
-                                  `(,list-value
-                                    ,pattern
+                                  (split-declarations-forms (decl forms) body
+                                    `(,list-value
+                                      ,pattern
 
-                                    (unless (< ,index ,v-end)
-                                      (go ,tag))
+                                      ,@decl
+                                      (unless (< ,index ,v-end)
+                                        (go ,tag))
 
-                                    (incf ,index)
-                                    ,@body)))
+                                      (incf ,index)
+                                      ,@forms))))
 
                              (,with-place .
                                ,(iter-macro (tag index v-end list-place)
@@ -145,7 +148,7 @@
              (pattern &body body)
 
            (with-destructure-pattern (var pattern)
-               (body body)
+               (body decl body)
 
              `(progn
                 (unless (if ,v-from-end
@@ -155,6 +158,8 @@
 
                 (let ((,var (aref ,vec ,index)))
                   (declare (type ,elt ,var))
+                  ,@decl
+
                   (if ,v-from-end
                       (decf ,index)
                       (incf ,index))
@@ -194,17 +199,18 @@
                    (pattern &body body)
 
                  (with-destructure-entry (key value pattern)
-                     (body body)
+                     (forms decl body)
 
                    `(multiple-value-bind (,more? ,key ,value)
                         (,next)
                       (declare (ignorable ,key ,value))
+                      ,@decl
 
                       (unless ,test
                         (go ,tag))
 
                       ,@inc
-                      ,@body))))
+                      ,@forms))))
 
              (make-iter-place (test inc)
                (iter-macro (more? next test tag inc table)
@@ -277,13 +283,15 @@
          (pattern &body body)
 
        (with-destructure-pattern (var pattern)
-           (body body)
+           (body decl body)
 
          `(progn
             (unless (morep ,it)
               (go ,tag))
 
             (let ((,var (element ,it)))
+              ,@decl
+
               (advance ,it)
               ,@body))))
 

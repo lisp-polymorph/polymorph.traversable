@@ -62,7 +62,7 @@ no clause succeeds NIL is returned."
 
 ;;; Supporting destructuring-bind patterns in TRAVERSE
 
-(defmacro with-destructure-pattern ((var pattern) (body-var body) &body forms)
+(defmacro with-destructure-pattern ((var pattern) (body-var decl-var body) &body forms)
   "Automatically generate destructuring code if the binding pattern is
 a destructuring-bind pattern.
 
@@ -78,29 +78,247 @@ If PATTERN is a symbol, the variable given by VAR is bound directly to
 that symbol and the variable given by BODY-VAR is bound directly to
 BODY.
 
+DECL-VAR is the name of a variable which receives the list of DECLARE
+expressions applying to the variable, given by VAR. These should be
+inserted in the correct place, where VAR is bound, in the result
+returned.
+
 The body forms of the macro FORMS are evaluated in an implicit PROGN,
 with the bindings to the variables given by VAR and BODY-VAR
 visible. The return value of the last form is returned.
 
 FORMS should generate code which binds the current sequence element to
-   the variable with name stored in VAR."
+the variable with name stored in VAR.
+
+This macro automatically takes care of handling declarations, that is
+if the list returned by BODY contains declarations, those applying to
+the variables in the destructuring pattern are inserted in the
+`destructuring-bind` form, DECL-VAR is bound to those which apply to
+the variable VAR, and a LOCALLY form, wrapping the form returned by
+FORMS, is generated in which the remaining declarations are inserted."
 
   `(make-destructure-pattern
     ,pattern ,body
-    (lambda (,var ,body-var)
+    (lambda (,var ,decl-var ,body-var)
       ,@forms)))
 
-(defun make-destructure-pattern (pattern body fn)
-  (etypecase pattern
-    (list
-     (with-gensyms (var)
-       (funcall
-        fn var
-        `((destructuring-bind ,pattern ,var
-            ,@body)))))
+(defmacro split-declarations-forms ((decl forms) body-form &body body)
+  "Split a 'body' into declare expressions and the forms to be evaluate.
 
-    (symbol
-     (funcall fn pattern body))))
+DECL is the name of the variable to receive the list of DECLARE
+expressions.
+
+FORMS is the name of the variable to receive the body forms.
+
+BODY-FORM is a form (evaluated) which produces the body.
+
+BODY is the list of forms, evaluated in an implicit PROGN with DECL
+and FORMS bound to the declarations and forms respectively. The value
+of the last form is returned."
+
+  `(multiple-value-bind (,forms ,decl)
+       (parse-iter-macro-body ,body-form)
+     ,@body))
+
+(defun parse-iter-macro-body (body)
+  "Split the BODY of a WITH-ITER-VALUE/PLACE macro into declaration expressions and forms.
+
+If BODY is a list of a single LOCALLY form, the body of the LOCALLY
+form is parsed instead."
+
+  (let ((body (if (and (length= body 1)
+                       (listp (first body))
+                       (eq (caar body) 'cl:locally))
+                  (cdar body)
+                  body)))
+
+    (parse-body body :documentation nil)))
+
+(defun make-destructure-pattern (pattern body fn)
+  (split-declarations-forms (decl forms) body
+    (etypecase pattern
+      (list
+       (multiple-value-bind (decl-xs decl-other)
+           (partition-declarations (destructure-vars pattern) decl)
+
+         (with-gensyms (var)
+           `(locally ,@decl-other
+              ,(funcall
+                fn var nil
+                `((destructuring-bind ,pattern ,var
+                    ,@decl-xs
+                    ,@forms)))))))
+
+      (symbol
+       (multiple-value-bind (decl-var decl-other)
+           (partition-declarations (list pattern) decl)
+
+         `(locally ,@decl-other
+            ,(funcall fn pattern decl-var forms)))))))
+
+(defun destructure-vars (lambda-list)
+  "Return the list of variables introduced by a destructuring-lambda-list.
+
+LAMBDA-LIST is a destructuring-lambda-list as found in
+DESTRUCTURING-BIND. It should not have &ENVIRONMENT parameters.
+
+Returns the list of all variables introduced by the lambda-list, not
+in any particular order.
+
+NOTE: If the lambda-list is malformed, or an unknown lambda-list
+keyword is encountered, this function simply returns the variable
+names it has encountered so far, and silently ignores the remaining
+malformed part."
+
+  (check-type lambda-list list)
+
+  (labels ((process-required (list vars)
+             (typecase list
+               (null vars)
+               (symbol (cons list vars))
+               (list
+                (destructuring-bind (arg &rest list) list
+                  (cond
+                    ((member arg lambda-list-keywords)
+                     (process-next arg list vars))
+
+                    ((symbolp arg)
+                     (process-required list (cons arg vars)))
+
+                    ((listp arg)
+                     (process-required
+                      list
+                      (process-required arg vars)))
+
+                    (t vars))))
+
+               (otherwise vars)))
+
+           (process-next (keyword list vars)
+             (case keyword
+               (&optional (process-optional list vars))
+               (&whole (process-whole list vars))
+               ((&rest &body) (process-rest list vars))
+               (&key (process-key list vars))
+               (&allow-other-keys (process-next-section list vars))
+               (&aux (process-aux list vars))
+               (otherwise
+                ;; Unknown lambda-list keyword.
+                vars)))
+
+           (process-optional (list vars)
+             (if (consp list)
+                 (destructuring-bind (arg &rest list) list
+                   (cond
+                     ((member arg lambda-list-keywords)
+                      (process-next arg list vars))
+
+                     ((symbolp arg)
+                      (process-optional list (cons arg vars)))
+
+                     ((consp arg)
+                      (destructuring-bind (var &optional init sp)
+                          arg
+                        (declare (ignore init))
+
+                        (process-optional
+                         list
+                         (cons var (append (ensure-list sp) vars)))))
+
+                     (t vars)))
+
+                 vars))
+
+           (process-rest (list vars)
+             (if (consp list)
+                 (destructuring-bind (arg &rest list) list
+                   (typecase arg
+                     (list
+                      (process-next-section
+                       list
+                       (process-required arg vars)))
+
+                     (symbol
+                      (process-next-section list (cons arg vars)))
+
+                     (otherwise vars)))
+
+                 vars))
+
+           (process-whole (list vars)
+             (if (consp list)
+                 (destructuring-bind (arg &rest list) list
+                   (if (symbolp arg)
+                       (process-required list (cons arg vars))
+                       vars))
+                 vars))
+
+           (process-next-section (list vars)
+             (if (and (consp list)
+                      (member (first list) lambda-list-keywords))
+
+                 (process-next (first list) (rest list) vars)
+                 vars))
+
+           (key-var (key)
+             (cond
+               ((and (listp key) (length= key 2))
+                (destructuring-bind (keyword var) key
+                  (declare (ignore keyword))
+
+                  (when (symbolp var)
+                    var)))
+
+               ((symbolp key) key)))
+
+           (process-key (list vars)
+             (if (consp list)
+                 (destructuring-bind (arg &rest list) list
+                   (cond
+                     ((member arg lambda-list-keywords)
+                      (process-next arg list vars))
+
+                     ((symbolp arg)
+                      (process-key list (cons arg vars)))
+
+                     ((consp arg)
+                      (destructuring-bind (key &optional init sp)
+                          arg
+                        (declare (ignore init))
+
+                        (if-let ((var (key-var key)))
+                          (process-key
+                           list
+                           (cons var (append (ensure-list sp) vars)))
+
+                          vars)))
+
+                     (t vars)))
+
+                 vars))
+
+           (process-aux (list vars)
+             (if (consp list)
+                 (destructuring-bind (arg &rest list) list
+                   (cond
+                     ((member arg lambda-list-keywords)
+                      (process-next arg list vars))
+
+                     ((symbolp arg)
+                      (process-aux list (cons arg vars)))
+
+                     ((consp arg)
+                      (destructuring-bind (var &optional init)
+                          arg
+                        (declare (ignore init))
+
+                        (process-aux list (cons var vars))))
+
+                     (t vars)))
+
+                 vars)))
+
+    (process-required lambda-list nil)))
 
 ;;; Iterator Macros
 
@@ -140,40 +358,40 @@ the iterator's WITH-ITER-VALUE and WITH-ITER-PLACE."
 
 ;;; Hash-Tables
 
-(defmacro with-destructure-entry ((key value pattern) (body-var body) &body forms)
+(defmacro with-destructure-entry ((key value pattern) (body-var decl-var body) &body forms)
   "Like WITH-DESTRUCTURE-PATTERN, except that FORMS should generate
-   code which binds the current entry key to KEY and the value to
-   VALUE."
+code which binds the current entry key to KEY and the value to VALUE."
 
   `(make-destructure-entry
     ,pattern ,body
-    (lambda (,key ,value ,body-var)
+    (lambda (,key ,value ,decl-var ,body-var)
       ,@forms)))
 
 (defun make-destructure-entry (pattern body fn)
-  (etypecase pattern
-    (cons
-     (if (and (symbolp (car pattern))
-              (cdr pattern)
-              (symbolp (cdr pattern)))
+  (if (and (consp pattern)
+           (symbolp (car pattern))
+           (cdr pattern)
+           (symbolp (cdr pattern)))
 
-         (let ((key (or (car pattern) (gensym "KEY")))
-               (value (or (cdr pattern) (gensym "VALUE"))))
+      (let ((key (or (car pattern) (gensym "KEY")))
+            (value (or (cdr pattern) (gensym "VALUE"))))
 
-           (funcall fn key value body))
+        (split-declarations-forms (decl forms) body
+          (multiple-value-bind (decls-vars decls-other)
+              (partition-declarations (list key value) decl)
 
-         (with-gensyms (key value)
-           (funcall
-            fn key value
-            `((destructuring-bind ,pattern (cons ,key ,value)
-                ,@body))))))
+            `(locally ,@decls-other
+               ,(funcall fn key value decls-vars forms)))))
 
-    (symbol
-     (with-gensyms (key value)
-       (funcall
-        fn key value
-        `((let ((,pattern (cons ,key ,value)))
-            ,@body)))))))
+      (with-destructure-pattern (var pattern)
+          (forms decls body)
+
+        (with-gensyms (key value)
+          (funcall
+           fn key value
+           `((let ((,var (cons ,key ,value)))
+               ,@decls
+               ,@forms)))))))
 
 (defmacro map-place (key table)
   (once-only (key)
@@ -181,3 +399,46 @@ the iterator's WITH-ITER-VALUE and WITH-ITER-PLACE."
 
 (defsetf map-place (key table) (new-value)
   `(setf (gethash ,key ,table) ,new-value))
+
+
+;;;; Parsing declarations
+
+;; From Serapeum / macro-tools.lisp
+
+;; Copyright (c) 2014 Paul M. Rodriguez
+
+;; Permission is hereby granted, free of charge, to any person obtaining
+;; a copy of this software and associated documentation files (the
+;; "Software"), to deal in the Software without restriction, including
+;; without limitation the rights to use, copy, modify, merge, publish,
+;; distribute, sublicense, and/or sell copies of the Software, and to
+;; permit persons to whom the Software is furnished to do so, subject to
+;; the following conditions:
+
+;; The above copyright notice and this permission notice shall be
+;; included in all copies or substantial portions of the Software.
+
+;; THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+;; EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+;; MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+;; NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+;; LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+;; OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+;; WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+(defun partition-declarations (xs declarations &optional env)
+  "Split DECLARATIONS into those that do and do not apply to XS.
+Return two values, one with each set.
+
+Both sets of declarations are returned in a form that can be spliced
+directly into Lisp code:
+
+     (locally ,@(partition-declarations vars decls) ...)"
+  (let ((env2 (parse-declarations declarations env)))
+    (flet ((build (env)
+             (build-declarations 'declare env)))
+      (if (null xs)
+          (values nil (build env2))
+          (values
+           (build (filter-declaration-env env2 :affecting xs))
+           (build (filter-declaration-env env2 :not-affecting xs)))))))

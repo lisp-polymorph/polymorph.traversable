@@ -1,7 +1,12 @@
 ;;;; package.lisp
 
 (defpackage #:polymorph.traversable
-  (:use #:cl #:polymorphic-functions #:alexandria #:introspect-ctype #:polymorph.utility)
+  (:use #:cl #:polymorphic-functions
+        #:alexandria
+        #:tcr.parse-declarations-1.0
+        #:introspect-ctype
+        #:polymorph.utility)
+
   (:local-nicknames (:cm :sandalphon.compiler-macro)
                     (:mop :closer-mop)
                     (:ie :introspect-environment))

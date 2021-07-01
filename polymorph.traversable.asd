@@ -10,7 +10,9 @@
                #:polymorph.macros
                #:polymorph.maths
                #:polymorph.access
-               #:polymorph.callable)
+               #:polymorph.callable
+
+               #:parse-declarations-1.0)
 
   :components ((:module
                 "src"
