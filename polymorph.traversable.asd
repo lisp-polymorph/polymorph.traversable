@@ -23,7 +23,9 @@
                  (:file "util")
                  (:file "expanders")
                  (:file "iterators")
-                 (:file "polymorph.traversable")))))
+                 (:file "polymorph.traversable"))))
+
+  :in-order-to ((asdf:test-op (asdf:test-op :polymorph.traversable/test))))
 
 (asdf:defsystem #:polymorph.traversable/test
   :description "Unit tests for polymorph.traversable"
@@ -34,7 +36,8 @@
                 "test"
                 :serial t
                 :components
-                ((:file "test"))))
+                ((:file "test")
+                 (:file "traverse"))))
 
   :perform (test-op (o s)
                     (uiop:symbol-call '#:polymorph.traversable/test '#:test-polymorph.traversable)))
