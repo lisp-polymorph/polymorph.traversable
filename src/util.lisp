@@ -388,7 +388,7 @@ code which binds the current entry key to KEY and the value to VALUE."
 
         (with-gensyms (key value)
           (funcall
-           fn key value
+           fn key value nil
            `((let ((,var (cons ,key ,value)))
                ,@decls
                ,@forms)))))))
