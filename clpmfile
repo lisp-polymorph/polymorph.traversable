@@ -1,0 +1,11 @@
+;;; -*- Mode: common-lisp; -*-
+(:api-version "0.3")
+
+(:source "quicklisp" :url "https://quicklisp.common-lisp-project-index.org/" :type :ql-clpi)
+
+(:asd "polymorph.traversable.asd")
+
+(:github "introspect-ctype" :path "lisp-polymorph/introspect-ctype" :branch "master" :systems ("introspect-ctype"))
+(:github "polymorph.maths" :path "lisp-polymorph/polymorph.maths" :branch "master" :systems ("polymorph.maths"))
+(:github "polymorph.access" :path "lisp-polymorph/polymorph.access" :branch "master" :systems ("polymorph.access"))
+(:github "polymorph.callable" :path "lisp-polymorph/polymorph.callable" :branch "master" :systems ("polymorph.callable"))
