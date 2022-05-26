@@ -2,8 +2,7 @@
 
 (defpackage #:polymorph.traversable
   (:use #:cl #:polymorphic-functions #:alexandria #:introspect-ctype #:polymorph.macros)
-  (:local-nicknames (:cm :sandalphon.compiler-macro)
-                    (:mop :closer-mop)
+  (:local-nicknames (:mop :closer-mop)
                     (:ie :introspect-environment))
   (:shadow #:find #:find-if
            #:position #:position-if
