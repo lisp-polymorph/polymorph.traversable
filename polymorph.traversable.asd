@@ -19,7 +19,8 @@
                  (:file "expanders")
                  (:file "iterators")
                  (:file "polymorph.traversable")
-                 (:file "iterators-new")))))
+                 ;(:file "iterators-new")
+                 (:file "iterators-sketch")))))
 
 (asdf:defsystem #:polymorph.traversable/test
   :description "Unit tests for polymorph.traversable"

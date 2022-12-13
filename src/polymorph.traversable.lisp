@@ -276,3 +276,5 @@
 
 ;;(define-polymorphic-function map (result-type function container &rest containers) :overwrite t)
 ;; TODO this turned out to be way harder then I thought. It needs iterators for runtime implementation
+(define-polymorphic-function remove (item container &key from-end start end
+                                                         count key test))

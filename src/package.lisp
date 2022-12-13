@@ -17,4 +17,23 @@
    #:make-iterator
    #:find #:find-if
    #:position #:position-if
-   #:count #:count-if))
+   #:count #:count-if
+   #:remove
+   #:iter
+   #:range
+   #:iterator-end
+   #:catch-iter-end
+   #:iter-stop
+   #:next
+   #:iter-vector
+   #:iter-list
+   #:for-each
+   #:chain-it
+   #:chain
+   #:lines
+   #:chars
+   #:range
+   #:fold
+   #:enumerate
+   #:map-iter-lazy
+   #:zip-iter))
