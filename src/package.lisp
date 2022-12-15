@@ -29,6 +29,12 @@
    #:iter-list
    #:for-each
    #:chain-it
+   #:take
+   #:take-while
+   #:skip
+   #:skip-while
+   #:find-it
+   #:filter
    #:chain
    #:lines
    #:chars

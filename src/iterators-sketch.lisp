@@ -57,7 +57,7 @@
   (it iter (error "Supply an iterator")))
 
 (defpolymorph (next :inline t) ((m map-iter)) t
-  (multiple-value-call (the function (fn m)) (next (it m))))
+  (multiple-value-call (fn m) (next (it m))))
 
 (defpolymorph map-iter-lazy ((it iter) (fn function)) (values map-iter &optional)
   (map-iter :it it :fn fn))
@@ -129,9 +129,100 @@
 ||#
 
 (defpolymorph (find-it :inline t) ((it iter) (fn function)) t
-  (loop (multiple-value-bind (a b) (next it)
-          (when (funcall fn a b)
-            (return (values a b))))))
+  (loop (let ((ls (multiple-value-list (next it))))
+          (when (apply fn ls)
+            (return (values-list ls))))))
+
+
+(polymorph.macros::%def (taker (:include iter)) ()
+  (it iter (error "Supply an iterator"))
+  (:mut times ind))
+
+
+(defpolymorph (take :inline t) ((it iter) (times ind)) (values taker &optional)
+  (taker :it it :times times))
+
+
+(defpolymorph (next :inline t) ((taker taker)) t
+  (if (= 0 (times taker))
+      (iter-stop)
+      (progn (decf (times taker))
+             (next (it taker)))))
+
+
+(polymorph.macros::%def (taker-while (:include iter)) ()
+  (it iter (error "Supply an iterator"))
+  (pred function (error "Supply a function")))
+
+(defpolymorph (take-while :inline t) ((it iter) (pred function)) (values taker-while &optional)
+  (taker-while :it it :pred pred))
+
+
+(defpolymorph (next :inline t) ((taker taker-while)) t
+  (let ((ls (multiple-value-list (next (it taker)))))
+    (if (apply (pred taker) ls)
+        (values-list ls)
+        (iter-stop))))
+
+
+
+(polymorph.macros::%def (skipper (:include iter)) ()
+  (it iter (error "Supply an iterator"))
+  (:mut times ind))
+
+
+(defpolymorph (skip :inline t) ((it iter) (times ind)) (values skipper &optional)
+  (skipper :it it :times times))
+
+
+(defpolymorph (next :inline t) ((skipper skipper)) t
+  (loop (if (= 0 (times skipper))
+            (return (next (it skipper)))
+            (progn (next (it skipper))
+                   (decf (times skipper))))))
+
+
+(polymorph.macros::%def (skipper-while (:include iter)) ()
+  (it iter (error "Supply an iterator"))
+  (pred function (error "Supply a function"))
+  (:mut done boolean nil))
+
+(defpolymorph (skip-while :inline t) ((it iter) (pred function)) (values skipper-while &optional)
+  (skipper-while :it it :pred pred))
+
+
+(defpolymorph (next :inline t) ((skipper skipper-while)) t
+  (if (done skipper)
+      (next (it skipper))
+      (loop (let ((ls (multiple-value-list (next (it skipper)))))
+              (unless (apply (pred skipper) ls)
+                (setf (done skipper) t)
+                (return (values-list ls)))))))
+
+
+
+
+
+
+
+
+
+
+
+(polymorph.macros::%def (filter-pred (:include iter)) ()
+  (it iter (error "Supply an iterator"))
+  (pred function (error "Supply a function")))
+
+(defpolymorph (filter :inline t) ((it iter) (pred function)) (values filter-pred &optional)
+  (filter-pred :it it :pred pred))
+
+
+(defpolymorph (next :inline t) ((filter filter-pred)) t
+  (loop (let ((ls (multiple-value-list (next (it filter)))))
+          (when (apply (pred filter) ls)
+            (return (values-list ls))))))
+
+
 
 
 (defpolymorph (for-each :inline :maybe) ((it iter) (fn function)) (values null &optional)
@@ -163,8 +254,7 @@
   (declare (ignorable type))
   (let ((res (make-array 0 :adjustable t :fill-pointer 0)))
     (handler-case (loop (vector-push-extend (multiple-value-call combine (next it)) res))
-      (iterator-end (c)
-        (declare (ignore c))
+      (iterator-end ()
         res))))
 
 (defpolymorph (collect :inline t) ((it iter) (type (eql list)) &optional ((combine function) #'identity))
@@ -174,8 +264,7 @@
          (next ls))
     (handler-case (loop (setf (cdr next) (list (multiple-value-call combine (next it)))
                               next (cdr next)))
-      (iterator-end (c)
-        (declare (ignore c))
+      (iterator-end ()
         (cdr ls)))))
 
 
