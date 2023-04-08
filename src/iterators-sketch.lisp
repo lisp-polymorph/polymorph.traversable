@@ -66,6 +66,9 @@
   (fit iter (error "Supply first iterator"))
   (sit iter (error "Supply second iterator")))
 
+(defpolymorph zip ((fit iter) (sit iter)) (values zip-iter &optional)
+  (zip-iter :fit fit :sit sit))
+
 (defpolymorph (next :inline t) ((z zip-iter)) t
   (multiple-value-call #'values (next (fit z)) (next (sit z))))
 
@@ -129,9 +132,12 @@
 ||#
 
 (defpolymorph (find-it :inline t) ((it iter) (fn function)) t
-  (loop (let ((ls (multiple-value-list (next it))))
-          (when (apply fn ls)
-            (return (values-list ls))))))
+  (handler-case
+      (loop (let ((ls (multiple-value-list (next it))))
+             (when (apply fn ls)
+               (return (values-list (concatenate 'list ls (list t)))))))   ;; TODO bad fix
+    (iterator-end ()
+      nil)))
 
 
 (polymorph.macros::%def (taker (:include iter)) ()
@@ -227,8 +233,7 @@
 
 (defpolymorph (for-each :inline :maybe) ((it iter) (fn function)) (values null &optional)
   (handler-case (loop (multiple-value-call fn (next it)))
-    (iterator-end (c)
-      (declare (ignore c))
+    (iterator-end ()
       nil)))
 
 (polymorph.macros::%def (chain-it (:include iter)) ()
@@ -240,10 +245,10 @@
   (if (flag iter)
       (next (sit iter))
       (handler-case (next (fit iter))
-        (iterator-end (c)
-          (declare (ignore c))
+        (iterator-end ()
           (setf (flag iter) t)
           (next (sit iter))))))
+
 
 (defpolymorph chain ((fit iter) (sit iter)) (values iter &optional)
   (chain-it :fit fit :sit sit))
@@ -314,3 +319,47 @@
 
 (defpolymorph enumerate ((it iter)) (values enum &optional)
   (enum :it it))
+
+
+(defpolymorph all ((it iter) (fn function)) (values boolean &optional)
+  (handler-case
+      (loop (let ((ls (multiple-value-list (next it))))
+              (unless (apply fn ls)
+                (return nil))))
+    (iterator-end ()
+      t)))
+;; FIXME needs special copy
+(polymorph.macros::%def (cartesian-product (:include iter)) ()
+  (fit iter (error "Supply an iterator"))
+  (sit iter (error "Supplu an iterator"))
+  (:mut current t (error "Do not use the default constructor")))
+
+
+(defpolymorph next ((it cartesian-product)) t
+  (handler-case
+      (let ((ls (multiple-value-list (next (sit it)))))
+        (values-list (concatenate 'list (current it) ls)))
+    (iterator-end ()
+      (setf (current it) (multiple-value-list (next (fit it)))))))
+
+(defpolymorph cartesian ((fit iter) (sit iter)) (values cartesian-product &optional)
+  (cartesian-product :fit fit :sit sit :current (multiple-value-list (next fit))))
+
+
+
+(defmacro or-value (maybe-value-place value)
+  (alexandria:with-gensyms (val ok)
+    `(multiple-value-bind (,val ,ok) ,maybe-value-place
+       (if ,ok
+           ,val
+           ,value))))
+
+(define-setf-expander or-value (maybe-value-place value &environment env)
+  (multiple-value-bind (dummies vals newval setter getter)
+      (get-setf-expansion maybe-value-place env)
+    (values
+     dummies
+     vals
+     newval
+     setter
+     `(or-value ,getter ,value))))

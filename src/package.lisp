@@ -42,4 +42,9 @@
    #:fold
    #:enumerate
    #:map-iter-lazy
-   #:zip-iter))
+   #:zip-iter
+   #:collect
+   #:zip
+   #:all    ;;rename to every
+   #:or-value ;; move tp macros
+   #:cartesian))
